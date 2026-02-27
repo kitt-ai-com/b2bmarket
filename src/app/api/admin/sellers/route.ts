@@ -55,7 +55,6 @@ export async function GET(request: NextRequest) {
             businessNumber: true,
             bizLicenseUrl: true,
             customFeeRate: true,
-            salesChannels: true,
             grade: {
               select: {
                 id: true,

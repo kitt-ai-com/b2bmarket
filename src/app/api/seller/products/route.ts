@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
   const limit = Number(searchParams.get("limit") || "20");
   const search = searchParams.get("search") || "";
   const categoryId = searchParams.get("categoryId") || "";
+  const stockFilter = searchParams.get("stock") || ""; // "inStock", "outOfStock"
+  const sort = searchParams.get("sort") || "name_asc";
 
   const where: any = { status: "ACTIVE" };
   if (search) {
@@ -27,6 +29,20 @@ export async function GET(request: NextRequest) {
     ];
   }
   if (categoryId) where.categoryId = categoryId;
+  if (stockFilter === "inStock") where.stock = { gt: 0 };
+  if (stockFilter === "outOfStock") where.stock = { lte: 0 };
+
+  // 정렬
+  const orderByMap: Record<string, any> = {
+    name_asc: { name: "asc" },
+    name_desc: { name: "desc" },
+    stock_asc: { stock: "asc" },
+    stock_desc: { stock: "desc" },
+    price_asc: { basePrice: "asc" },
+    price_desc: { basePrice: "desc" },
+    newest: { createdAt: "desc" },
+  };
+  const orderBy = orderByMap[sort] || { name: "asc" };
 
   // 셀러의 등급 조회
   const sellerProfile = await prisma.sellerProfile.findUnique({
@@ -39,7 +55,7 @@ export async function GET(request: NextRequest) {
       where,
       skip: (page - 1) * limit,
       take: limit,
-      orderBy: { name: "asc" },
+      orderBy,
       include: {
         category: { select: { id: true, name: true } },
         gradePrices: sellerProfile

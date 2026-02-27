@@ -32,7 +32,6 @@ interface SellerDetail {
     businessNumber: string;
     bizLicenseUrl: string;
     customFeeRate: string | null;
-    salesChannels: string[] | null;
     createdAt: string;
     grade: {
       id: string;
@@ -270,16 +269,6 @@ export default function SellerDetailPage() {
                 >
                   파일 보기
                 </a>
-              </div>
-            )}
-            {seller.sellerProfile?.salesChannels && (
-              <div className="text-sm">
-                <p className="mb-1 text-gray-500">판매 채널</p>
-                <div className="flex gap-1">
-                  {(seller.sellerProfile.salesChannels as string[]).map((ch) => (
-                    <Badge key={ch} variant="secondary">{ch}</Badge>
-                  ))}
-                </div>
               </div>
             )}
           </CardContent>

@@ -19,7 +19,7 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Search, Filter, ChevronDown, Settings2 } from "lucide-react";
+import { Search, Filter, ChevronDown, Settings2, Download, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 interface OrderItem {
@@ -34,8 +34,6 @@ interface Order {
   id: string;
   orderNumber: string;
   sellerId: string;
-  salesChannel: string;
-  channelOrderNo: string | null;
   status: string;
   totalAmount: string;
   recipientName: string;
@@ -50,6 +48,12 @@ interface Order {
   items: OrderItem[];
 }
 
+interface SellerOption {
+  id: string;
+  name: string;
+  sellerProfile?: { businessName: string } | null;
+}
+
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   PENDING: { label: "대기", variant: "secondary" },
   PREPARING: { label: "배송준비", variant: "default" },
@@ -58,13 +62,6 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
   CANCELLED: { label: "취소", variant: "destructive" },
   RETURNED: { label: "반품", variant: "destructive" },
   EXCHANGED: { label: "교환", variant: "secondary" },
-};
-
-const channelConfig: Record<string, string> = {
-  COUPANG: "쿠팡",
-  SMARTSTORE: "스마트스토어",
-  OWN_MALL: "자사몰",
-  OTHER: "기타",
 };
 
 const statusTabs = [
@@ -88,7 +85,8 @@ export default function AdminOrdersPage() {
 
   // 상세 필터
   const [showFilters, setShowFilters] = useState(false);
-  const [channelFilter, setChannelFilter] = useState("all");
+  const [sellerFilter, setSellerFilter] = useState("all");
+  const [sellers, setSellers] = useState<SellerOption[]>([]);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [amountMin, setAmountMin] = useState("");
@@ -108,6 +106,10 @@ export default function AdminOrdersPage() {
   const [trackingNumber, setTrackingNumber] = useState("");
   const [updating, setUpdating] = useState(false);
 
+  // 인라인 송장번호 편집
+  const [editingTrackingId, setEditingTrackingId] = useState<string | null>(null);
+  const [editingTrackingValue, setEditingTrackingValue] = useState("");
+
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
@@ -115,7 +117,7 @@ export default function AdminOrdersPage() {
       params.set("page", String(pagination.page));
       if (statusFilter) params.set("status", statusFilter);
       if (search) params.set("search", search);
-      if (channelFilter !== "all") params.set("channel", channelFilter);
+      if (sellerFilter !== "all") params.set("sellerId", sellerFilter);
       if (dateFrom) params.set("dateFrom", dateFrom);
       if (dateTo) params.set("dateTo", dateTo);
       if (amountMin) params.set("amountMin", amountMin);
@@ -136,16 +138,27 @@ export default function AdminOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [pagination.page, statusFilter, search, channelFilter, dateFrom, dateTo, amountMin, amountMax]);
+  }, [pagination.page, statusFilter, search, sellerFilter, dateFrom, dateTo, amountMin, amountMax]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
 
+  // 셀러 목록 fetch
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/sellers?limit=100&status=ACTIVE");
+        const json = await res.json();
+        if (res.ok) setSellers(json.data);
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
   // 선택 초기화
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [statusFilter, search, pagination.page, channelFilter, dateFrom, dateTo]);
+  }, [statusFilter, search, pagination.page, sellerFilter, dateFrom, dateTo]);
 
   // === 체크박스 ===
   const toggleSelect = (id: string) => {
@@ -234,6 +247,37 @@ export default function AdminOrdersPage() {
     }
   };
 
+  // === 인라인 송장번호 저장 ===
+  const saveInlineTracking = async (orderId: string, value: string) => {
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/tracking`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trackingNumber: value }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error?.message || "송장번호 저장 실패");
+        return;
+      }
+      toast.success("송장번호가 저장되었습니다");
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, trackingNumber: value || null } : o))
+      );
+    } catch {
+      toast.error("오류가 발생했습니다");
+    } finally {
+      setEditingTrackingId(null);
+    }
+  };
+
+  const startTrackingEdit = (order: Order) => {
+    if (order.status === "PREPARING" || order.status === "SHIPPING") {
+      setEditingTrackingId(order.id);
+      setEditingTrackingValue(order.trackingNumber || "");
+    }
+  };
+
   const handleSearch = () => {
     setPagination((prev) => ({ ...prev, page: 1 }));
     setSearch(searchInput);
@@ -245,7 +289,7 @@ export default function AdminOrdersPage() {
   };
 
   const resetFilters = () => {
-    setChannelFilter("all");
+    setSellerFilter("all");
     setDateFrom("");
     setDateTo("");
     setAmountMin("");
@@ -253,11 +297,80 @@ export default function AdminOrdersPage() {
     setPagination((prev) => ({ ...prev, page: 1 }));
   };
 
-  const hasActiveFilters = channelFilter !== "all" || dateFrom !== "" || dateTo !== "" || amountMin !== "" || amountMax !== "";
+  const hasActiveFilters = sellerFilter !== "all" || dateFrom !== "" || dateTo !== "" || amountMin !== "" || amountMax !== "";
+
+  // === 엑셀 다운로드 ===
+  const handleExcelDownload = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter) params.set("status", statusFilter);
+      if (sellerFilter !== "all") params.set("sellerId", sellerFilter);
+      if (dateFrom) params.set("dateFrom", dateFrom);
+      if (dateTo) params.set("dateTo", dateTo);
+
+      const res = await fetch(`/api/admin/orders/excel?${params}`);
+      if (!res.ok) {
+        toast.error("다운로드 실패");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `orders_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("엑셀 다운로드 완료");
+    } catch {
+      toast.error("다운로드 중 오류가 발생했습니다");
+    }
+  };
+
+  // === 엑셀 업로드 ===
+  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("/api/admin/orders/excel", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error?.message || "업로드 실패");
+        return;
+      }
+      const { created, errors } = json.data;
+      toast.success(`주문 ${created}건 생성 완료${errors?.length ? ` (오류 ${errors.length}건)` : ""}`);
+      fetchOrders();
+    } catch {
+      toast.error("업로드 중 오류가 발생했습니다");
+    }
+  };
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">주문 관리</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">주문 관리</h1>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExcelDownload}>
+            <Download className="mr-1 h-4 w-4" />
+            엑셀 다운로드
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <label className="cursor-pointer">
+              <Upload className="mr-1 h-4 w-4" />
+              엑셀 업로드
+              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleExcelUpload} />
+            </label>
+          </Button>
+        </div>
+      </div>
 
       {/* 상태 탭 + 검색 */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -302,15 +415,16 @@ export default function AdminOrdersPage() {
           <CardContent className="pt-4">
             <div className="grid grid-cols-4 gap-4">
               <div className="space-y-1">
-                <Label className="text-xs text-gray-500">판매채널</Label>
-                <Select value={channelFilter} onValueChange={(v) => { setChannelFilter(v); setPagination((prev) => ({ ...prev, page: 1 })); }}>
+                <Label className="text-xs text-gray-500">업체 (셀러)</Label>
+                <Select value={sellerFilter} onValueChange={(v) => { setSellerFilter(v); setPagination((prev) => ({ ...prev, page: 1 })); }}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">전체</SelectItem>
-                    <SelectItem value="COUPANG">쿠팡</SelectItem>
-                    <SelectItem value="SMARTSTORE">스마트스토어</SelectItem>
-                    <SelectItem value="OWN_MALL">자사몰</SelectItem>
-                    <SelectItem value="OTHER">기타</SelectItem>
+                    {sellers.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.sellerProfile?.businessName || s.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -423,8 +537,8 @@ export default function AdminOrdersPage() {
                     <TableHead>주문번호</TableHead>
                     <TableHead>셀러</TableHead>
                     <TableHead>상품</TableHead>
-                    <TableHead>채널</TableHead>
                     <TableHead>상태</TableHead>
+                    <TableHead>송장번호</TableHead>
                     <TableHead className="text-right">금액</TableHead>
                     <TableHead>주문일</TableHead>
                   </TableRow>
@@ -455,10 +569,66 @@ export default function AdminOrdersPage() {
                           {order.items.length > 1 && ` 외 ${order.items.length - 1}건`}
                         </TableCell>
                         <TableCell onClick={() => openDetail(order)}>
-                          {channelConfig[order.salesChannel] || order.salesChannel}
-                        </TableCell>
-                        <TableCell onClick={() => openDetail(order)}>
                           <Badge variant={stCfg.variant}>{stCfg.label}</Badge>
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          {order.status === "PENDING" ? (
+                            <Input
+                              className="h-7 w-36 text-xs"
+                              disabled
+                              placeholder="-"
+                              value=""
+                            />
+                          ) : order.status === "PREPARING" ? (
+                            editingTrackingId === order.id ? (
+                              <Input
+                                className="h-7 w-36 text-xs"
+                                autoFocus
+                                value={editingTrackingValue}
+                                onChange={(e) => setEditingTrackingValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") saveInlineTracking(order.id, editingTrackingValue);
+                                  if (e.key === "Escape") setEditingTrackingId(null);
+                                }}
+                                onBlur={() => setEditingTrackingId(null)}
+                                placeholder="송장번호 입력"
+                              />
+                            ) : (
+                              <Input
+                                className="h-7 w-36 text-xs cursor-pointer"
+                                readOnly
+                                value={order.trackingNumber || ""}
+                                placeholder="클릭하여 입력"
+                                onClick={() => startTrackingEdit(order)}
+                              />
+                            )
+                          ) : order.status === "SHIPPING" ? (
+                            editingTrackingId === order.id ? (
+                              <Input
+                                className="h-7 w-36 text-xs"
+                                autoFocus
+                                value={editingTrackingValue}
+                                onChange={(e) => setEditingTrackingValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") saveInlineTracking(order.id, editingTrackingValue);
+                                  if (e.key === "Escape") setEditingTrackingId(null);
+                                }}
+                                onBlur={() => setEditingTrackingId(null)}
+                                placeholder="송장번호 수정"
+                              />
+                            ) : (
+                              <span
+                                className="text-xs cursor-pointer hover:underline"
+                                onClick={() => startTrackingEdit(order)}
+                              >
+                                {order.trackingNumber || "-"}
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-xs text-gray-500">
+                              {order.trackingNumber || "-"}
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="text-right font-medium" onClick={() => openDetail(order)}>
                           {Number(order.totalAmount).toLocaleString()}원
@@ -521,11 +691,6 @@ export default function AdminOrdersPage() {
                   {detailOrder.seller?.name}
                   {detailOrder.seller?.sellerProfile?.businessName &&
                     ` (${detailOrder.seller.sellerProfile.businessName})`}
-                </div>
-                <div>
-                  <span className="text-gray-500">채널:</span>{" "}
-                  {channelConfig[detailOrder.salesChannel] || detailOrder.salesChannel}
-                  {detailOrder.channelOrderNo && ` (${detailOrder.channelOrderNo})`}
                 </div>
                 <div>
                   <span className="text-gray-500">주문일:</span>{" "}

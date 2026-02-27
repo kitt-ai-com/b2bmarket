@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status") || "";
   const search = searchParams.get("search") || "";
 
-  const channel = searchParams.get("channel") || "";
+  const sellerId = searchParams.get("sellerId") || "";
   const dateFrom = searchParams.get("dateFrom") || "";
   const dateTo = searchParams.get("dateTo") || "";
   const amountMin = searchParams.get("amountMin") || "";
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
       { seller: { name: { contains: search, mode: "insensitive" } } },
     ];
   }
-  if (channel) where.salesChannel = channel;
+  if (sellerId) where.sellerId = sellerId;
   if (dateFrom || dateTo) {
     where.createdAt = {};
     if (dateFrom) where.createdAt.gte = new Date(dateFrom);

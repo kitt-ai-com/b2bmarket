@@ -28,6 +28,33 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    // 배송중으로 일괄 변경 시 송장번호 미입력 건 검증
+    if (status === "SHIPPING") {
+      const ordersWithoutTracking = await prisma.order.findMany({
+        where: {
+          id: { in: ids },
+          OR: [
+            { trackingNumber: null },
+            { trackingNumber: "" },
+          ],
+        },
+        select: { orderNumber: true },
+      });
+
+      if (ordersWithoutTracking.length > 0) {
+        const numbers = ordersWithoutTracking.map((o) => o.orderNumber).join(", ");
+        return NextResponse.json(
+          {
+            error: {
+              code: "MISSING_TRACKING",
+              message: `송장번호가 미입력된 주문이 있습니다: ${numbers}`,
+            },
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const updateData: any = { status };
 
     if (status === "SHIPPING") {

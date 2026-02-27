@@ -1,8 +1,6 @@
 import { z } from "zod";
 
 export const orderCreateSchema = z.object({
-  salesChannel: z.enum(["COUPANG", "SMARTSTORE", "OWN_MALL", "OTHER"]),
-  channelOrderNo: z.string().optional(),
   recipientName: z.string().min(1, "수령자 이름을 입력해주세요"),
   recipientPhone: z.string().min(1, "수령자 전화번호를 입력해주세요"),
   recipientAddr: z.string().min(1, "수령자 주소를 입력해주세요"),

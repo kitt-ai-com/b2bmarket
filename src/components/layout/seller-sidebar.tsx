@@ -12,6 +12,8 @@ import {
   MessageSquare,
   LayoutDashboard,
   Wallet,
+  Megaphone,
+  Bell,
 } from "lucide-react";
 
 const menuItems = [
@@ -23,6 +25,8 @@ const menuItems = [
   { href: "/seller/settlements", label: "정산 내역", icon: FileText },
   { href: "/seller/stats", label: "내 통계", icon: BarChart3 },
   { href: "/seller/inquiries", label: "문의", icon: MessageSquare },
+  { href: "/seller/notices", label: "공지사항", icon: Megaphone },
+  { href: "/seller/notifications", label: "알림", icon: Bell },
 ];
 
 export function SellerSidebar() {

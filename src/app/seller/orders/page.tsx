@@ -15,7 +15,7 @@ import {
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import { Plus, Search, X, ShoppingCart } from "lucide-react";
+import { Plus, Search, X, ShoppingCart, Download, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 // === 타입 ===
@@ -40,7 +40,6 @@ interface OrderItem {
 interface Order {
   id: string;
   orderNumber: string;
-  salesChannel: string;
   status: string;
   totalAmount: string;
   recipientName: string;
@@ -63,13 +62,6 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
   CANCELLED: { label: "취소", variant: "destructive" },
   RETURNED: { label: "반품", variant: "destructive" },
   EXCHANGED: { label: "교환", variant: "secondary" },
-};
-
-const channelConfig: Record<string, string> = {
-  COUPANG: "쿠팡",
-  SMARTSTORE: "스마트스토어",
-  OWN_MALL: "자사몰",
-  OTHER: "기타",
 };
 
 const statusTabs = [
@@ -104,8 +96,6 @@ export default function SellerOrdersPage() {
   // 주문 생성
   const [createOpen, setCreateOpen] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [salesChannel, setSalesChannel] = useState("OWN_MALL");
-  const [channelOrderNo, setChannelOrderNo] = useState("");
   const [recipientName, setRecipientName] = useState("");
   const [recipientPhone, setRecipientPhone] = useState("");
   const [recipientAddr, setRecipientAddr] = useState("");
@@ -208,8 +198,6 @@ export default function SellerOrdersPage() {
 
   const openCreateDialog = () => {
     setCart([]);
-    setSalesChannel("OWN_MALL");
-    setChannelOrderNo("");
     setRecipientName("");
     setRecipientPhone("");
     setRecipientAddr("");
@@ -237,8 +225,6 @@ export default function SellerOrdersPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          salesChannel,
-          channelOrderNo: channelOrderNo || undefined,
           recipientName,
           recipientPhone,
           recipientAddr,
@@ -280,14 +266,78 @@ export default function SellerOrdersPage() {
     setPagination((prev) => ({ ...prev, page: 1 }));
   };
 
+  // === 엑셀 다운로드 ===
+  const handleExcelDownload = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter) params.set("status", statusFilter);
+
+      const res = await fetch(`/api/seller/orders/excel?${params}`);
+      if (!res.ok) {
+        toast.error("다운로드 실패");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `my_orders_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("엑셀 다운로드 완료");
+    } catch {
+      toast.error("다운로드 중 오류가 발생했습니다");
+    }
+  };
+
+  // === 엑셀 업로드 ===
+  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("/api/seller/orders/excel", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error?.message || "업로드 실패");
+        return;
+      }
+      const { created, errors } = json.data;
+      toast.success(`주문 ${created}건 생성 완료${errors?.length ? ` (오류 ${errors.length}건)` : ""}`);
+      fetchOrders();
+    } catch {
+      toast.error("업로드 중 오류가 발생했습니다");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">내 주문</h1>
-        <Button onClick={openCreateDialog}>
-          <Plus className="mr-2 h-4 w-4" />
-          주문하기
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExcelDownload}>
+            <Download className="mr-1 h-4 w-4" />
+            엑셀 다운로드
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <label className="cursor-pointer">
+              <Upload className="mr-1 h-4 w-4" />
+              엑셀 업로드
+              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleExcelUpload} />
+            </label>
+          </Button>
+          <Button onClick={openCreateDialog}>
+            <Plus className="mr-2 h-4 w-4" />
+            주문하기
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -331,7 +381,6 @@ export default function SellerOrdersPage() {
                   <TableRow>
                     <TableHead>주문번호</TableHead>
                     <TableHead>상품</TableHead>
-                    <TableHead>채널</TableHead>
                     <TableHead>상태</TableHead>
                     <TableHead className="text-right">금액</TableHead>
                     <TableHead>주문일</TableHead>
@@ -351,7 +400,6 @@ export default function SellerOrdersPage() {
                           {order.items[0]?.product.name}
                           {order.items.length > 1 && ` 외 ${order.items.length - 1}건`}
                         </TableCell>
-                        <TableCell>{channelConfig[order.salesChannel] || order.salesChannel}</TableCell>
                         <TableCell>
                           <Badge variant={stCfg.variant}>{stCfg.label}</Badge>
                         </TableCell>
@@ -479,32 +527,6 @@ export default function SellerOrdersPage() {
               </div>
             )}
 
-            {/* 판매채널 */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>판매채널</Label>
-                <Select value={salesChannel} onValueChange={setSalesChannel}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="COUPANG">쿠팡</SelectItem>
-                    <SelectItem value="SMARTSTORE">스마트스토어</SelectItem>
-                    <SelectItem value="OWN_MALL">자사몰</SelectItem>
-                    <SelectItem value="OTHER">기타</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>채널 주문번호 (선택)</Label>
-                <Input
-                  value={channelOrderNo}
-                  onChange={(e) => setChannelOrderNo(e.target.value)}
-                  placeholder="채널 주문번호"
-                />
-              </div>
-            </div>
-
             {/* 수령자 정보 */}
             <div className="space-y-4">
               <Label className="text-base font-semibold">수령자 정보</Label>
@@ -566,10 +588,6 @@ export default function SellerOrdersPage() {
                   <Badge variant={statusConfig[detailOrder.status]?.variant || "secondary"}>
                     {statusConfig[detailOrder.status]?.label || detailOrder.status}
                   </Badge>
-                </div>
-                <div>
-                  <span className="text-gray-500">채널:</span>{" "}
-                  {channelConfig[detailOrder.salesChannel] || detailOrder.salesChannel}
                 </div>
                 <div>
                   <span className="text-gray-500">주문일:</span>{" "}

@@ -19,7 +19,7 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Search, Plus, Pencil, Trash2, Upload, X, ImageIcon, Filter, ChevronDown, Settings2 } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, Upload, Download, X, ImageIcon, Filter, ChevronDown, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface Category {
@@ -530,11 +530,76 @@ export default function AdminProductsPage() {
 
   const hasActiveFilters = sourceFilter !== "all" || priceMin !== "" || priceMax !== "" || stockFilter !== "all";
 
+  // === 엑셀 다운로드 ===
+  const handleExcelDownload = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (categoryFilter !== "all") params.set("categoryId", categoryFilter);
+      if (sourceFilter !== "all") params.set("source", sourceFilter);
+      if (search) params.set("search", search);
+
+      const res = await fetch(`/api/admin/products/excel?${params}`);
+      if (!res.ok) {
+        toast.error("다운로드 실패");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `products_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("엑셀 다운로드 완료");
+    } catch {
+      toast.error("다운로드 중 오류가 발생했습니다");
+    }
+  };
+
+  // === 엑셀 업로드 ===
+  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("/api/admin/products/excel", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error?.message || "업로드 실패");
+        return;
+      }
+      const { created, updated, errors } = json.data;
+      toast.success(`생성 ${created}건, 수정 ${updated}건 완료${errors?.length ? ` (오류 ${errors.length}건)` : ""}`);
+      fetchProducts();
+    } catch {
+      toast.error("업로드 중 오류가 발생했습니다");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">상품 관리</h1>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExcelDownload}>
+            <Download className="mr-1 h-4 w-4" />
+            엑셀 다운로드
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <label className="cursor-pointer">
+              <Upload className="mr-1 h-4 w-4" />
+              엑셀 업로드
+              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleExcelUpload} />
+            </label>
+          </Button>
           <Button variant="outline" onClick={() => setCategoryDialogOpen(true)}>
             카테고리 관리
           </Button>

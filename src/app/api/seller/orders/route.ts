@@ -169,8 +169,6 @@ export async function POST(request: NextRequest) {
         data: {
           orderNumber: generateOrderNumber(),
           sellerId,
-          salesChannel: validated.salesChannel,
-          channelOrderNo: validated.channelOrderNo || null,
           recipientName: validated.recipientName,
           recipientPhone: validated.recipientPhone,
           recipientAddr: validated.recipientAddr,
