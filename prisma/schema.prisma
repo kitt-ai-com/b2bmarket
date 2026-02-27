@@ -1,0 +1,494 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// 사용자 & 인증
+// ============================================
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  SELLER
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  REJECTED
+}
+
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique
+  password      String
+  name          String
+  phone         String?
+  role          UserRole     @default(SELLER)
+  status        UserStatus   @default(PENDING)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  sellerProfile   SellerProfile?
+  orders          Order[]
+  inquiries       Inquiry[]
+  notifications   Notification[]
+  activityLogs    ActivityLog[]
+  chatMessages    ChatMessage[]
+  depositRequests DepositRequest[]
+}
+
+model SellerProfile {
+  id               String      @id @default(cuid())
+  userId           String      @unique
+  user             User        @relation(fields: [userId], references: [id])
+  businessName     String
+  businessNumber   String
+  bizLicenseUrl    String
+  gradeId          String
+  grade            SellerGrade @relation(fields: [gradeId], references: [id])
+  customFeeRate    Decimal?
+  salesChannels    Json?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+}
+
+model SellerGrade {
+  id            String          @id @default(cuid())
+  name          String          @unique
+  level         Int             @unique
+  feeRate       Decimal
+  description   String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  sellers       SellerProfile[]
+  prices        ProductPrice[]
+}
+
+// ============================================
+// 상품 & 카테고리
+// ============================================
+
+enum ProductStatus {
+  ACTIVE
+  OUT_OF_STOCK
+  DISCONTINUED
+}
+
+enum ProductSource {
+  SELF
+  SUPPLIER
+}
+
+model Category {
+  id          String     @id @default(cuid())
+  name        String
+  parentId    String?
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryTree")
+  createdAt   DateTime   @default(now())
+
+  products    Product[]
+}
+
+model Product {
+  id            String        @id @default(cuid())
+  code          String        @unique
+  name          String
+  description   String?
+  basePrice     Decimal
+  costPrice     Decimal?
+  unit          String        @default("EA")
+  stock         Int           @default(0)
+  minStock      Int           @default(10)
+  status        ProductStatus @default(ACTIVE)
+  source        ProductSource
+  categoryId    String?
+  category      Category?     @relation(fields: [categoryId], references: [id])
+  supplierId    String?
+  supplier      Supplier?     @relation(fields: [supplierId], references: [id])
+  imageUrl      String?
+  images        String[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  gradePrices   ProductPrice[]
+  sellerPrices  SellerPrice[]
+  orderItems    OrderItem[]
+}
+
+model ProductPrice {
+  id          String      @id @default(cuid())
+  productId   String
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  gradeId     String
+  grade       SellerGrade @relation(fields: [gradeId], references: [id])
+  price       Decimal
+
+  @@unique([productId, gradeId])
+}
+
+model SellerPrice {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sellerId    String
+  price       Decimal
+
+  @@unique([productId, sellerId])
+}
+
+// ============================================
+// 공급사
+// ============================================
+
+model Supplier {
+  id              String          @id @default(cuid())
+  name            String
+  contactName     String?
+  phone           String?
+  email           String?
+  kakaoId         String?
+  address         String?
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  products        Product[]
+  purchaseOrders  PurchaseOrder[]
+  excelTemplate   ExcelTemplate?
+}
+
+model ExcelTemplate {
+  id          String   @id @default(cuid())
+  supplierId  String   @unique
+  supplier    Supplier @relation(fields: [supplierId], references: [id])
+  name        String
+  columns     Json
+  fileUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================
+// 주문
+// ============================================
+
+enum OrderStatus {
+  PENDING
+  PREPARING
+  SHIPPING
+  DELIVERED
+  CANCELLED
+  RETURNED
+  EXCHANGED
+}
+
+enum SalesChannel {
+  COUPANG
+  SMARTSTORE
+  OWN_MALL
+  OTHER
+}
+
+model Order {
+  id              String       @id @default(cuid())
+  orderNumber     String       @unique
+  sellerId        String
+  seller          User         @relation(fields: [sellerId], references: [id])
+  salesChannel    SalesChannel
+  channelOrderNo  String?
+  status          OrderStatus  @default(PENDING)
+
+  recipientName   String
+  recipientPhone  String
+  recipientAddr   String
+  postalCode      String?
+
+  trackingNumber  String?
+  courier         String?
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
+
+  totalAmount     Decimal
+  feeAmount       Decimal?
+  settlementAmt   Decimal?
+
+  notes           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  items           OrderItem[]
+  claims          Claim[]
+}
+
+model OrderItem {
+  id          String   @id @default(cuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  quantity    Int
+  unitPrice   Decimal
+  totalPrice  Decimal
+  createdAt   DateTime @default(now())
+}
+
+// ============================================
+// 발주 (공급사)
+// ============================================
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SENT
+  CONFIRMED
+  SHIPPED
+  RECEIVED
+}
+
+model PurchaseOrder {
+  id            String              @id @default(cuid())
+  poNumber      String              @unique
+  supplierId    String
+  supplier      Supplier            @relation(fields: [supplierId], references: [id])
+  status        PurchaseOrderStatus @default(DRAFT)
+  totalAmount   Decimal?
+  sentAt        DateTime?
+  receivedAt    DateTime?
+  notes         String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  items         PurchaseOrderItem[]
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productId       String
+  productName     String
+  quantity        Int
+  unitPrice       Decimal
+  trackingNumber  String?
+  relatedOrderIds Json?
+  createdAt       DateTime      @default(now())
+}
+
+// ============================================
+// 클레임 (반품/환불/교환)
+// ============================================
+
+enum ClaimType {
+  RETURN
+  REFUND
+  EXCHANGE
+}
+
+enum ClaimStatus {
+  REQUESTED
+  APPROVED
+  PROCESSING
+  COMPLETED
+  REJECTED
+}
+
+model Claim {
+  id              String      @id @default(cuid())
+  orderId         String
+  order           Order       @relation(fields: [orderId], references: [id])
+  type            ClaimType
+  status          ClaimStatus @default(REQUESTED)
+  reason          String
+  amount          Decimal?
+  newTrackingNo   String?
+  adminNote       String?
+  processedAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+// ============================================
+// 정산
+// ============================================
+
+enum SettlementStatus {
+  PENDING
+  CONFIRMED
+  PAID
+}
+
+model Settlement {
+  id            String           @id @default(cuid())
+  sellerId      String
+  periodStart   DateTime
+  periodEnd     DateTime
+  totalSales    Decimal
+  totalFee      Decimal
+  claimDeduct   Decimal          @default(0)
+  netAmount     Decimal
+  feeRate       Decimal
+  status        SettlementStatus @default(PENDING)
+  paidAt        DateTime?
+  notes         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+}
+
+// ============================================
+// 예치금
+// ============================================
+
+enum DepositTransactionType {
+  CHARGE
+  DEDUCT
+  REFUND
+}
+
+model Deposit {
+  id           String               @id @default(cuid())
+  sellerId     String               @unique
+  balance      Decimal              @default(0)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  transactions DepositTransaction[]
+}
+
+model DepositTransaction {
+  id            String                 @id @default(cuid())
+  depositId     String
+  deposit       Deposit                @relation(fields: [depositId], references: [id])
+  type          DepositTransactionType
+  amount        Decimal
+  balanceAfter  Decimal
+  description   String?
+  adminId       String?
+  createdAt     DateTime               @default(now())
+}
+
+enum DepositRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model DepositRequest {
+  id             String               @id @default(cuid())
+  sellerId       String
+  seller         User                 @relation(fields: [sellerId], references: [id])
+  amount         Decimal
+  depositorName  String
+  status         DepositRequestStatus @default(PENDING)
+  adminNote      String?
+  processedAt    DateTime?
+  processedBy    String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+}
+
+// ============================================
+// 문의/게시판
+// ============================================
+
+enum InquiryStatus {
+  OPEN
+  ANSWERED
+  CLOSED
+}
+
+model Inquiry {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  title       String
+  content     String
+  answer      String?
+  status      InquiryStatus @default(OPEN)
+  answeredAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+// ============================================
+// 공지사항
+// ============================================
+
+model Notice {
+  id          String   @id @default(cuid())
+  title       String
+  content     String
+  isImportant Boolean  @default(false)
+  authorId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================
+// 알림
+// ============================================
+
+enum NotificationType {
+  ORDER_NEW
+  TRACKING_UPDATED
+  PRICE_CHANGED
+  STOCK_LOW
+  CLAIM_NEW
+  SETTLEMENT_READY
+  NOTICE
+  SYSTEM
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id])
+  type        NotificationType
+  title       String
+  message     String
+  data        Json?
+  isRead      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+}
+
+// ============================================
+// 활동 로그
+// ============================================
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  action      String
+  target      String?
+  details     Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+}
+
+// ============================================
+// AI 채팅
+// ============================================
+
+enum ChatRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+model ChatMessage {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  role        ChatRole
+  content     String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+}
