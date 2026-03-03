@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guard";
 import { productUpdateSchema } from "@/lib/validations/product";
+import { createNotification } from "@/lib/notification";
 
 export async function GET(
   _request: Request,
@@ -52,6 +53,12 @@ export async function PATCH(
 
     const { gradePrices, ...productData } = validated;
 
+    // 가격 변경 감지를 위해 기존 상품 조회
+    const existingProduct = await prisma.product.findUnique({
+      where: { id },
+      select: { name: true, code: true, basePrice: true },
+    });
+
     const product = await prisma.$transaction(async (tx) => {
       if (gradePrices) {
         await tx.productPrice.deleteMany({ where: { productId: id } });
@@ -78,6 +85,25 @@ export async function PATCH(
         },
       });
     });
+
+    // 가격 변경 시 셀러에게 알림
+    if (existingProduct && productData.basePrice != null && Number(productData.basePrice) !== Number(existingProduct.basePrice)) {
+      const sellers = await prisma.user.findMany({
+        where: { role: "SELLER", status: "ACTIVE" },
+        select: { id: true },
+      });
+      if (sellers.length > 0) {
+        await Promise.all(sellers.map((s) =>
+          createNotification({
+            userId: s.id,
+            type: "PRICE_CHANGED",
+            title: `가격 변경: ${existingProduct.name}`,
+            message: `"${existingProduct.name}" (${existingProduct.code})의 가격이 ₩${Number(existingProduct.basePrice).toLocaleString()}에서 ₩${Number(productData.basePrice).toLocaleString()}로 변경되었습니다.`,
+            data: { productId: id },
+          })
+        ));
+      }
+    }
 
     return NextResponse.json({ data: product });
   } catch (err: any) {

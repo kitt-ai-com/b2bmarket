@@ -124,3 +124,37 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Chat markdown table styles */
+.chat-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  margin: 0.5rem 0;
+}
+.chat-markdown th,
+.chat-markdown td {
+  border: 1px solid #e5e7eb;
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+}
+.chat-markdown th {
+  background-color: #f3f4f6;
+  font-weight: 600;
+}
+.chat-markdown tr:nth-child(even) {
+  background-color: #f9fafb;
+}
+.chat-markdown strong {
+  font-weight: 600;
+}
+.chat-markdown ul,
+.chat-markdown ol {
+  padding-left: 1.25rem;
+}
+.chat-markdown code {
+  background-color: #f3f4f6;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+}

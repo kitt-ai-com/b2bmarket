@@ -28,6 +28,8 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
   const userMessage = body.message?.trim();
+  const fileContext = body.fileContext as { type: string; fileName: string; fileContext?: string; base64?: string; mimeType?: string } | undefined;
+
   if (!userMessage) {
     return new Response(JSON.stringify({ error: { code: "VALIDATION_ERROR", message: "메시지를 입력해주세요" } }), {
       status: 400,
@@ -39,9 +41,12 @@ export async function POST(request: NextRequest) {
   const role = (session.user as Record<string, unknown>).role as string;
   const userName = session.user.name || "사용자";
 
-  // Save user message to DB
+  // Save user message to DB (include file name if attached)
+  const dbContent = fileContext
+    ? `${userMessage}\n\n[첨부파일: ${fileContext.fileName}]`
+    : userMessage;
   await prisma.chatMessage.create({
-    data: { userId, role: "USER", content: userMessage },
+    data: { userId, role: "USER", content: dbContent },
   });
 
   // Load recent conversation history
@@ -63,13 +68,21 @@ export async function POST(request: NextRequest) {
   }
 
   // Determine tools available to role
+  const adminOnlyTools = [
+    "search_sellers", "update_order_status",
+    "create_product", "update_product", "bulk_update_price",
+    "input_tracking_number", "process_claim", "send_notice",
+    "answer_inquiry", "manage_seller",
+    "upload_tracking_excel", "get_margin_stats", "detect_anomalies",
+  ];
+  const sellerOnlyTools = ["create_order", "create_claim", "create_inquiry"];
   const availableTools = role === "SELLER"
-    ? chatTools.filter((t) => t.name !== "search_sellers")
-    : chatTools;
+    ? chatTools.filter((t: { name: string }) => !adminOnlyTools.includes(t.name))
+    : chatTools.filter((t: { name: string }) => !sellerOnlyTools.includes(t.name));
 
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
+    model: "gemini-2.5-flash",
     systemInstruction: getSystemPrompt(role as "ADMIN" | "SUPER_ADMIN" | "SELLER", userName),
     tools: [{ functionDeclarations: availableTools }],
   });
@@ -84,9 +97,24 @@ export async function POST(request: NextRequest) {
 
       try {
         // Non-streaming tool calling loop
+        // Build user message parts (text + optional file)
+        const userParts: Part[] = [];
+        if (fileContext?.type === "image" && fileContext.base64 && fileContext.mimeType) {
+          userParts.push({
+            inlineData: { data: fileContext.base64, mimeType: fileContext.mimeType },
+          });
+          userParts.push({ text: `[첨부 이미지: ${fileContext.fileName}]\n${userMessage}` });
+        } else if (fileContext?.type === "spreadsheet" && fileContext.fileContext) {
+          userParts.push({
+            text: `[첨부 파일: ${fileContext.fileName}]\n아래는 첨부된 엑셀/CSV 파일의 내용입니다:\n\n${fileContext.fileContext}\n\n사용자 질문: ${userMessage}`,
+          });
+        } else {
+          userParts.push({ text: userMessage });
+        }
+
         let currentHistory: Content[] = [
           ...history,
-          { role: "user", parts: [{ text: userMessage }] },
+          { role: "user", parts: userParts },
         ];
 
         let finalText = "";
@@ -116,12 +144,26 @@ export async function POST(request: NextRequest) {
             send("tool_use", { name: fc.name, args: fc.args });
 
             const toolResult = await executeTool(fc.name, fc.args as Record<string, unknown>, userId, role);
-            toolResults.push({
-              functionResponse: {
-                name: fc.name,
-                response: { result: toolResult },
-              },
-            });
+
+            // Check for chart data
+            if (toolResult && typeof toolResult === "object" && (toolResult as Record<string, unknown>).__chart) {
+              const { __chart, summary, ...chartData } = toolResult as Record<string, unknown>;
+              void __chart;
+              send("chart", chartData);
+              toolResults.push({
+                functionResponse: {
+                  name: fc.name,
+                  response: { result: summary },
+                },
+              });
+            } else {
+              toolResults.push({
+                functionResponse: {
+                  name: fc.name,
+                  response: { result: toolResult },
+                },
+              });
+            }
           }
 
           // Add assistant message and tool results to history

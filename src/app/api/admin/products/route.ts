@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guard";
 import { productCreateSchema } from "@/lib/validations/product";
+import { createNotification } from "@/lib/notification";
 
 export async function GET(request: NextRequest) {
   const { error } = await requireAdmin();
@@ -131,6 +132,23 @@ export async function POST(request: Request) {
         },
       },
     });
+
+    // 전체 셀러에게 신규 상품 알림
+    const sellers = await prisma.user.findMany({
+      where: { role: "SELLER", status: "ACTIVE" },
+      select: { id: true },
+    });
+    if (sellers.length > 0) {
+      await Promise.all(sellers.map((s) =>
+        createNotification({
+          userId: s.id,
+          type: "SYSTEM",
+          title: `신규 상품: ${product.name}`,
+          message: `새로운 상품 "${product.name}" (${(product as Record<string, unknown>).code || ""})이(가) 등록되었습니다.`,
+          data: { productId: product.id },
+        })
+      ));
+    }
 
     return NextResponse.json({ data: product }, { status: 201 });
   } catch (err: any) {

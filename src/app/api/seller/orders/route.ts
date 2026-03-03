@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
+import { requireSeller } from "@/lib/auth-guard";
 import { orderCreateSchema } from "@/lib/validations/order";
 
 // 주문번호 생성: ORD-YYMMDD-XXXX
@@ -16,13 +16,8 @@ function generateOrderNumber() {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json(
-      { error: { code: "UNAUTHORIZED", message: "로그인이 필요합니다" } },
-      { status: 401 }
-    );
-  }
+  const { error, session } = await requireSeller();
+  if (error) return error;
 
   const searchParams = request.nextUrl.searchParams;
   const page = Number(searchParams.get("page") || "1");
@@ -61,13 +56,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json(
-      { error: { code: "UNAUTHORIZED", message: "로그인이 필요합니다" } },
-      { status: 401 }
-    );
-  }
+  const { error, session } = await requireSeller();
+  if (error) return error;
 
   const body = await request.json();
   const parsed = orderCreateSchema.safeParse(body);

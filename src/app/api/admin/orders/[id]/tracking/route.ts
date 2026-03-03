@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guard";
+import { createNotification } from "@/lib/notification";
 
 export async function PATCH(
   request: NextRequest,
@@ -44,6 +45,17 @@ export async function PATCH(
       status: true,
     },
   });
+
+  // 셀러에게 송장 등록 알림
+  if (trackingNumber) {
+    await createNotification({
+      userId: order.sellerId,
+      type: "TRACKING_UPDATED",
+      title: `송장번호 등록: ${order.orderNumber}`,
+      message: `주문 ${order.orderNumber}에 송장번호 ${trackingNumber}이(가) 등록되었습니다.${courier ? ` (택배사: ${courier})` : ""}`,
+      data: { orderId: id, orderNumber: order.orderNumber },
+    });
+  }
 
   return NextResponse.json({ data: updated });
 }

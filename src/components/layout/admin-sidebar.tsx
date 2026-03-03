@@ -13,6 +13,7 @@ import {
   BarChart3,
   MessageSquare,
   Bell,
+  BellRing,
   Settings,
   LayoutDashboard,
   ClipboardList,
@@ -31,6 +32,7 @@ const menuItems = [
   { href: "/admin/claims", label: "클레임 관리", icon: Truck },
   { href: "/admin/inquiries", label: "문의 관리", icon: MessageSquare },
   { href: "/admin/notices", label: "공지 관리", icon: Bell },
+  { href: "/admin/notifications", label: "알림", icon: BellRing },
   { href: "/admin/stats", label: "통계", icon: BarChart3 },
   { href: "/admin/settings", label: "설정", icon: Settings },
 ];

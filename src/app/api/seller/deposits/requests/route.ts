@@ -2,17 +2,12 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
+import { requireSeller } from "@/lib/auth-guard";
 import { depositRequestSchema } from "@/lib/validations/deposit";
 
 export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json(
-      { error: { code: "UNAUTHORIZED", message: "로그인이 필요합니다" } },
-      { status: 401 }
-    );
-  }
+  const { error, session } = await requireSeller();
+  if (error) return error;
 
   try {
     const page = Number(request.nextUrl.searchParams.get("page") || "1");
@@ -44,13 +39,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json(
-      { error: { code: "UNAUTHORIZED", message: "로그인이 필요합니다" } },
-      { status: 401 }
-    );
-  }
+  const { error, session } = await requireSeller();
+  if (error) return error;
 
   try {
     const body = await request.json();
