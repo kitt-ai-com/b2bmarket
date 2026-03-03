@@ -98,8 +98,9 @@ export async function POST(request: NextRequest) {
         throw new Error("PRODUCT_NOT_FOUND");
       }
 
-      // 3. 주문 아이템 + 총액 계산
+      // 3. 주문 아이템 + 총액 + 배송비 계산
       let totalAmount = 0;
+      let totalShippingFee = 0;
       const orderItems: { productId: string; quantity: number; unitPrice: number; totalPrice: number }[] = [];
 
       for (const item of validated.items) {
@@ -126,6 +127,7 @@ export async function POST(request: NextRequest) {
           totalPrice,
         });
         totalAmount += totalPrice;
+        totalShippingFee += Number(product.shippingFee);
       }
 
       // 4. 예치금 확인 및 차감
@@ -135,11 +137,12 @@ export async function POST(request: NextRequest) {
       }
 
       const currentBalance = Number(deposit.balance);
-      if (currentBalance < totalAmount) {
+      const grandTotal = totalAmount + totalShippingFee;
+      if (currentBalance < grandTotal) {
         throw new Error("INSUFFICIENT_BALANCE");
       }
 
-      const newBalance = currentBalance - totalAmount;
+      const newBalance = currentBalance - grandTotal;
 
       await tx.deposit.update({
         where: { sellerId },
@@ -165,6 +168,7 @@ export async function POST(request: NextRequest) {
           postalCode: validated.postalCode || null,
           notes: validated.notes || null,
           totalAmount,
+          totalShippingFee,
           items: {
             create: orderItems,
           },
@@ -177,7 +181,7 @@ export async function POST(request: NextRequest) {
         data: {
           depositId: deposit.id,
           type: "DEDUCT",
-          amount: totalAmount,
+          amount: grandTotal,
           balanceAfter: newBalance,
           description: `주문 ${order.orderNumber}`,
         },

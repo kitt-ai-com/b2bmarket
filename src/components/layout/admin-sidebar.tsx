@@ -18,12 +18,16 @@ import {
   LayoutDashboard,
   ClipboardList,
   Wallet,
+  DollarSign,
+  Pencil,
 } from "lucide-react";
 
 const menuItems = [
   { href: "/admin/dashboard", label: "대시보드", icon: LayoutDashboard },
   { href: "/admin/products", label: "상품 관리", icon: Package },
+  { href: "/admin/prices", label: "가격 관리", icon: DollarSign },
   { href: "/admin/orders", label: "주문 관리", icon: ShoppingCart },
+  { href: "/admin/order-modifications", label: "주문 수정 요청", icon: Pencil },
   { href: "/admin/purchase-orders", label: "발주 관리", icon: ClipboardList },
   { href: "/admin/suppliers", label: "공급사 관리", icon: Factory },
   { href: "/admin/sellers", label: "셀러 관리", icon: Users },

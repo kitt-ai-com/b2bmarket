@@ -7,8 +7,10 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Download, ArrowUpDown } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Search, Download, ArrowUpDown, ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 
 interface Category {
@@ -27,7 +29,15 @@ interface Product {
   category: Category | null;
   price: string;
   basePrice: string;
+  status: string;
+  shippingFee: string;
 }
+
+const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" }> = {
+  ACTIVE: { label: "판매중", variant: "default" },
+  OUT_OF_STOCK: { label: "품절", variant: "secondary" },
+  DISCONTINUED: { label: "단종", variant: "destructive" },
+};
 
 export default function SellerProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -37,7 +47,10 @@ export default function SellerProductsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [sort, setSort] = useState("name_asc");
+  const [priceMin, setPriceMin] = useState("");
+  const [priceMax, setPriceMax] = useState("");
   const [pagination, setPagination] = useState({ page: 1, total: 0, totalPages: 0 });
 
   const fetchProducts = useCallback(async () => {
@@ -47,7 +60,10 @@ export default function SellerProductsPage() {
       if (search) params.set("search", search);
       if (categoryFilter !== "all") params.set("categoryId", categoryFilter);
       if (stockFilter !== "all") params.set("stock", stockFilter);
+      if (statusFilter !== "all") params.set("status", statusFilter);
       if (sort !== "name_asc") params.set("sort", sort);
+      if (priceMin) params.set("priceMin", priceMin);
+      if (priceMax) params.set("priceMax", priceMax);
       params.set("page", String(pagination.page));
 
       const res = await fetch(`/api/seller/products?${params}`);
@@ -65,7 +81,7 @@ export default function SellerProductsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, categoryFilter, stockFilter, sort, pagination.page]);
+  }, [search, categoryFilter, stockFilter, statusFilter, sort, priceMin, priceMax, pagination.page]);
 
   const fetchCategories = useCallback(async () => {
     try {
@@ -88,6 +104,10 @@ export default function SellerProductsPage() {
   const handleSearch = () => {
     setPagination((prev) => ({ ...prev, page: 1 }));
     setSearch(searchInput);
+  };
+
+  const applyPriceFilter = () => {
+    setPagination((prev) => ({ ...prev, page: 1 }));
   };
 
   const handleExcelDownload = async () => {
@@ -124,6 +144,23 @@ export default function SellerProductsPage() {
         </Button>
       </div>
 
+      {/* 상태 탭 필터 */}
+      <Tabs
+        value={statusFilter}
+        onValueChange={(v) => {
+          setStatusFilter(v);
+          setPagination((prev) => ({ ...prev, page: 1 }));
+        }}
+      >
+        <TabsList>
+          <TabsTrigger value="all">전체</TabsTrigger>
+          <TabsTrigger value="ACTIVE">판매중</TabsTrigger>
+          <TabsTrigger value="OUT_OF_STOCK">품절</TabsTrigger>
+          <TabsTrigger value="DISCONTINUED">단종</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {/* 필터 바 */}
       <div className="flex flex-wrap items-center gap-3">
         <Select
           value={categoryFilter}
@@ -182,6 +219,27 @@ export default function SellerProductsPage() {
           </SelectContent>
         </Select>
 
+        {/* 가격 범위 필터 */}
+        <div className="flex items-center gap-1">
+          <Input
+            type="number"
+            placeholder="최소 가격"
+            value={priceMin}
+            onChange={(e) => setPriceMin(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && applyPriceFilter()}
+            className="w-28 h-9"
+          />
+          <span className="text-gray-400">~</span>
+          <Input
+            type="number"
+            placeholder="최대 가격"
+            value={priceMax}
+            onChange={(e) => setPriceMax(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && applyPriceFilter()}
+            className="w-28 h-9"
+          />
+        </div>
+
         <div className="flex gap-2">
           <Input
             placeholder="상품명, 코드 검색"
@@ -207,34 +265,58 @@ export default function SellerProductsPage() {
             <div className="py-8 text-center text-gray-500">상품이 없습니다</div>
           ) : (
             <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>코드</TableHead>
-                    <TableHead>상품명</TableHead>
-                    <TableHead>카테고리</TableHead>
-                    <TableHead className="text-right">단가</TableHead>
-                    <TableHead className="text-right">재고</TableHead>
-                    <TableHead>단위</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {products.map((product) => (
-                    <TableRow key={product.id}>
-                      <TableCell className="font-mono text-sm">{product.code}</TableCell>
-                      <TableCell className="font-medium">{product.name}</TableCell>
-                      <TableCell>{product.category?.name || "-"}</TableCell>
-                      <TableCell className="text-right font-semibold">
-                        {Number(product.price).toLocaleString()}원
-                      </TableCell>
-                      <TableCell className={`text-right ${product.stock <= 0 ? "text-red-500" : ""}`}>
-                        {product.stock > 0 ? product.stock : "품절"}
-                      </TableCell>
-                      <TableCell>{product.unit}</TableCell>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-28">상품코드</TableHead>
+                      <TableHead className="w-14">이미지</TableHead>
+                      <TableHead>상품명</TableHead>
+                      <TableHead className="text-right">판매가</TableHead>
+                      <TableHead className="w-20">판매상태</TableHead>
+                      <TableHead className="text-right w-20">재고</TableHead>
+                      <TableHead className="text-right w-24">배송비</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {products.map((product) => (
+                      <TableRow key={product.id}>
+                        <TableCell className="font-mono text-sm">{product.code}</TableCell>
+                        <TableCell>
+                          {product.imageUrl ? (
+                            <img
+                              src={product.imageUrl}
+                              alt={product.name}
+                              className="h-10 w-10 rounded border object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-10 w-10 items-center justify-center rounded border bg-gray-50">
+                              <ImageIcon className="h-4 w-4 text-gray-300" />
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-medium">{product.name}</TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {Number(product.price).toLocaleString()}원
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={statusConfig[product.status]?.variant || "default"}>
+                            {statusConfig[product.status]?.label || product.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className={`text-right ${product.stock <= 0 ? "text-red-500 font-medium" : ""}`}>
+                          {product.stock > 0 ? product.stock : "품절"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {Number(product.shippingFee) > 0
+                            ? `${Number(product.shippingFee).toLocaleString()}원`
+                            : "무료"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
 
               {pagination.totalPages > 1 && (
                 <div className="mt-4 flex items-center justify-center gap-2">

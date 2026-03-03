@@ -8,7 +8,9 @@ type NotificationType =
   | "CLAIM_NEW"
   | "SETTLEMENT_READY"
   | "NOTICE"
-  | "SYSTEM";
+  | "SYSTEM"
+  | "ORDER_MOD_REQUESTED"
+  | "ORDER_MOD_RESPONDED";
 
 /**
  * 알림 생성 유틸리티

@@ -16,6 +16,7 @@ export const productCreateSchema = z.object({
   unit: z.string().default("EA"),
   stock: z.number().int().min(0).default(0),
   minStock: z.number().int().min(0).default(10),
+  shippingFee: z.number().min(0).default(0),
   status: z.enum(["ACTIVE", "OUT_OF_STOCK", "DISCONTINUED"]).default("ACTIVE"),
   source: z.enum(["SELF", "SUPPLIER"]),
   categoryId: z.string().nullable().optional(),

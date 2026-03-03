@@ -128,7 +128,8 @@ export async function POST(request: NextRequest) {
           const candidate = response.candidates?.[0];
           if (!candidate) break;
 
-          const parts = candidate.content.parts;
+          const parts = candidate.content?.parts || [];
+          if (parts.length === 0) break;
           const functionCalls = parts.filter((p: Part) => p.functionCall);
 
           if (functionCalls.length === 0) {
@@ -141,9 +142,10 @@ export async function POST(request: NextRequest) {
           const toolResults: Part[] = [];
           for (const part of functionCalls) {
             const fc = part.functionCall!;
-            send("tool_use", { name: fc.name, args: fc.args });
+            const fcArgs = (fc.args || {}) as Record<string, unknown>;
+            send("tool_use", { name: fc.name, args: fcArgs });
 
-            const toolResult = await executeTool(fc.name, fc.args as Record<string, unknown>, userId, role);
+            const toolResult = await executeTool(fc.name, fcArgs, userId, role);
 
             // Check for chart data
             if (toolResult && typeof toolResult === "object" && (toolResult as Record<string, unknown>).__chart) {

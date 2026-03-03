@@ -16,6 +16,7 @@ const PRODUCT_COLUMNS: ColumnDef[] = [
   { header: "최소재고", key: "minStock", width: 8 },
   { header: "상태", key: "status", width: 12 },
   { header: "출처", key: "source", width: 10 },
+  { header: "배송비", key: "shippingFee", width: 10 },
   { header: "카테고리", key: "categoryName", width: 15 },
 ];
 
@@ -70,6 +71,7 @@ export async function GET(request: NextRequest) {
     minStock: p.minStock,
     status: p.status,
     source: p.source,
+    shippingFee: Number(p.shippingFee),
     categoryName: p.category?.name || "",
   }));
 
@@ -127,6 +129,7 @@ export async function POST(request: NextRequest) {
         minStock: parseInt(row.minStock) || 10,
         status: ["ACTIVE", "OUT_OF_STOCK", "DISCONTINUED"].includes(row.status) ? row.status : "ACTIVE",
         source: ["SELF", "SUPPLIER"].includes(row.source) ? row.source : "SELF",
+        shippingFee: parseFloat(row.shippingFee) || 0,
       };
 
       // 카테고리 매칭

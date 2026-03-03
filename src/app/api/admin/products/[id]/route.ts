@@ -120,8 +120,9 @@ export async function PATCH(
       );
     }
     console.error("Product update error:", err);
+    const detail = process.env.NODE_ENV === "development" ? String(err.message || err) : undefined;
     return NextResponse.json(
-      { error: { code: "INTERNAL_ERROR", message: "서버 오류가 발생했습니다" } },
+      { error: { code: "INTERNAL_ERROR", message: detail || "서버 오류가 발생했습니다" } },
       { status: 500 }
     );
   }

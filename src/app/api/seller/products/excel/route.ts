@@ -12,6 +12,8 @@ const PRODUCT_COLUMNS: ColumnDef[] = [
   { header: "단가", key: "price", width: 12 },
   { header: "단위", key: "unit", width: 8 },
   { header: "재고", key: "stock", width: 8 },
+  { header: "판매상태", key: "status", width: 10 },
+  { header: "배송비", key: "shippingFee", width: 10 },
   { header: "카테고리", key: "categoryName", width: 15 },
 ];
 
@@ -67,6 +69,8 @@ export async function GET(request: NextRequest) {
       price: effectivePrice,
       unit: p.unit,
       stock: p.stock,
+      status: p.status,
+      shippingFee: Number(p.shippingFee),
       categoryName: p.category?.name || "",
     };
   });

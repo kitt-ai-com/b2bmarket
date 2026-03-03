@@ -107,6 +107,7 @@ model Product {
   unit          String        @default("EA")
   stock         Int           @default(0)
   minStock      Int           @default(10)
+  shippingFee   Decimal       @default(0)
   status        ProductStatus @default(ACTIVE)
   source        ProductSource
   categoryId    String?
@@ -207,9 +208,10 @@ model Order {
   shippedAt       DateTime?
   deliveredAt     DateTime?
 
-  totalAmount     Decimal
-  feeAmount       Decimal?
-  settlementAmt   Decimal?
+  totalAmount      Decimal
+  totalShippingFee Decimal      @default(0)
+  feeAmount        Decimal?
+  settlementAmt    Decimal?
 
   notes           String?
   createdAt       DateTime     @default(now())
@@ -217,6 +219,7 @@ model Order {
 
   items           OrderItem[]
   claims          Claim[]
+  modificationRequests OrderModificationRequest[]
 }
 
 model OrderItem {
@@ -434,6 +437,8 @@ enum NotificationType {
   SETTLEMENT_READY
   NOTICE
   SYSTEM
+  ORDER_MOD_REQUESTED
+  ORDER_MOD_RESPONDED
 }
 
 model Notification {
@@ -446,6 +451,31 @@ model Notification {
   data        Json?
   isRead      Boolean          @default(false)
   createdAt   DateTime         @default(now())
+}
+
+// ============================================
+// 주문 수정 요청
+// ============================================
+
+enum OrderModificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model OrderModificationRequest {
+  id          String                   @id @default(cuid())
+  orderId     String
+  order       Order                    @relation(fields: [orderId], references: [id])
+  sellerId    String
+  changes     Json
+  reason      String
+  status      OrderModificationStatus  @default(PENDING)
+  adminNote   String?
+  processedBy String?
+  processedAt DateTime?
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
 }
 
 // ============================================

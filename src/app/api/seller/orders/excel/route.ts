@@ -159,6 +159,7 @@ export async function POST(request: NextRequest) {
       // 상품 조회 + 가격 계산
       const items: { productId: string; quantity: number; unitPrice: number; totalPrice: number }[] = [];
       let totalAmount = 0;
+      let totalShippingFee = 0;
       let hasError = false;
 
       for (const row of groupRows) {
@@ -209,13 +210,15 @@ export async function POST(request: NextRequest) {
           totalPrice: unitPrice * qty,
         });
         totalAmount += unitPrice * qty;
+        totalShippingFee += Number(product.shippingFee);
       }
 
       if (hasError) continue;
 
       // 예치금 확인
-      if (currentBalance < totalAmount) {
-        errors.push(`예치금 부족 (필요: ${totalAmount.toLocaleString()}원, 잔액: ${currentBalance.toLocaleString()}원)`);
+      const grandTotal = totalAmount + totalShippingFee;
+      if (currentBalance < grandTotal) {
+        errors.push(`예치금 부족 (필요: ${grandTotal.toLocaleString()}원, 잔액: ${currentBalance.toLocaleString()}원)`);
         continue;
       }
 
@@ -230,7 +233,7 @@ export async function POST(request: NextRequest) {
         }
 
         // 예치금 차감
-        const newBalance = currentBalance - totalAmount;
+        const newBalance = currentBalance - grandTotal;
         await tx.deposit.update({
           where: { sellerId },
           data: { balance: newBalance },
@@ -247,6 +250,7 @@ export async function POST(request: NextRequest) {
             postalCode: first.postalCode || null,
             notes: first.notes || null,
             totalAmount,
+            totalShippingFee,
             items: { create: items },
           },
         });
@@ -256,7 +260,7 @@ export async function POST(request: NextRequest) {
           data: {
             depositId: deposit!.id,
             type: "DEDUCT",
-            amount: totalAmount,
+            amount: grandTotal,
             balanceAfter: newBalance,
             description: `주문 ${order.orderNumber} (엑셀 업로드)`,
           },

@@ -15,8 +15,12 @@ export async function GET(request: NextRequest) {
   const categoryId = searchParams.get("categoryId") || "";
   const stockFilter = searchParams.get("stock") || ""; // "inStock", "outOfStock"
   const sort = searchParams.get("sort") || "name_asc";
+  const status = searchParams.get("status") || "";
+  const priceMin = searchParams.get("priceMin") || "";
+  const priceMax = searchParams.get("priceMax") || "";
 
-  const where: any = { status: "ACTIVE" };
+  const where: any = {};
+  if (status) where.status = status;
   if (search) {
     where.OR = [
       { name: { contains: search, mode: "insensitive" } },
@@ -26,6 +30,11 @@ export async function GET(request: NextRequest) {
   if (categoryId) where.categoryId = categoryId;
   if (stockFilter === "inStock") where.stock = { gt: 0 };
   if (stockFilter === "outOfStock") where.stock = { lte: 0 };
+  if (priceMin || priceMax) {
+    where.basePrice = {};
+    if (priceMin) where.basePrice.gte = Number(priceMin);
+    if (priceMax) where.basePrice.lte = Number(priceMax);
+  }
 
   // 정렬
   const orderByMap: Record<string, any> = {
@@ -88,6 +97,8 @@ export async function GET(request: NextRequest) {
       category: product.category,
       price: effectivePrice,
       basePrice: product.basePrice,
+      status: product.status,
+      shippingFee: product.shippingFee,
     };
   });
 

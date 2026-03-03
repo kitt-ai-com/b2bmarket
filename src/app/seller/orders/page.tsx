@@ -10,13 +10,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import { Plus, Search, X, ShoppingCart, Download, Upload } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Plus, Search, X, ShoppingCart, Download, Upload, Pencil, FileEdit } from "lucide-react";
 import { toast } from "sonner";
+
+interface ModRequest {
+  id: string;
+  status: string;
+  reason: string;
+  changes: Record<string, unknown>;
+  adminNote: string | null;
+  createdAt: string;
+  processedAt: string | null;
+}
 
 // === 타입 ===
 interface Product {
@@ -42,6 +50,7 @@ interface Order {
   orderNumber: string;
   status: string;
   totalAmount: string;
+  totalShippingFee: string;
   recipientName: string;
   recipientPhone: string;
   recipientAddr: string;
@@ -103,6 +112,31 @@ export default function SellerOrdersPage() {
   const [orderNotes, setOrderNotes] = useState("");
   const [creating, setCreating] = useState(false);
   const [balance, setBalance] = useState(0);
+
+  // 주문 수정 (PENDING)
+  const [editOpen, setEditOpen] = useState(false);
+  const [editOrder, setEditOrder] = useState<Order | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editAddr, setEditAddr] = useState("");
+  const [editPostal, setEditPostal] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editCart, setEditCart] = useState<CartItem[]>([]);
+  const [editSaving, setEditSaving] = useState(false);
+
+  // 수정 요청 (PREPARING)
+  const [modReqOpen, setModReqOpen] = useState(false);
+  const [modReqOrder, setModReqOrder] = useState<Order | null>(null);
+  const [modReqName, setModReqName] = useState("");
+  const [modReqPhone, setModReqPhone] = useState("");
+  const [modReqAddr, setModReqAddr] = useState("");
+  const [modReqPostal, setModReqPostal] = useState("");
+  const [modReqNotes, setModReqNotes] = useState("");
+  const [modReqReason, setModReqReason] = useState("");
+  const [modReqSaving, setModReqSaving] = useState(false);
+
+  // 수정 요청 이력
+  const [modHistory, setModHistory] = useState<ModRequest[]>([]);
 
   // 상품 검색
   const [products, setProducts] = useState<Product[]>([]);
@@ -251,11 +285,6 @@ export default function SellerOrdersPage() {
     }
   };
 
-  const openDetail = (order: Order) => {
-    setDetailOrder(order);
-    setDetailOpen(true);
-  };
-
   const handleSearch = () => {
     setPagination((prev) => ({ ...prev, page: 1 }));
     setSearch(searchInput);
@@ -264,6 +293,158 @@ export default function SellerOrdersPage() {
   const handleStatusFilter = (val: string) => {
     setStatusFilter(val);
     setPagination((prev) => ({ ...prev, page: 1 }));
+  };
+
+  // === 주문 수정 (PENDING) ===
+  const openEditDialog = (order: Order) => {
+    setEditOrder(order);
+    setEditName(order.recipientName);
+    setEditPhone(order.recipientPhone);
+    setEditAddr(order.recipientAddr);
+    setEditPostal(order.postalCode || "");
+    setEditNotes(order.notes || "");
+    setEditCart(order.items.map((item) => ({
+      product: {
+        id: item.product.code ? item.product.code : "",
+        code: item.product.code,
+        name: item.product.name,
+        price: item.unitPrice,
+        stock: 9999,
+        unit: item.product.unit || "EA",
+        imageUrl: item.product.imageUrl,
+      },
+      quantity: item.quantity,
+    })));
+    setProductSearch("");
+    setProducts([]);
+    setDetailOpen(false);
+    setEditOpen(true);
+    fetchBalance();
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editOrder) return;
+    setEditSaving(true);
+    try {
+      const payload: Record<string, unknown> = {};
+      if (editName !== editOrder.recipientName) payload.recipientName = editName;
+      if (editPhone !== editOrder.recipientPhone) payload.recipientPhone = editPhone;
+      if (editAddr !== editOrder.recipientAddr) payload.recipientAddr = editAddr;
+      if (editPostal !== (editOrder.postalCode || "")) payload.postalCode = editPostal || null;
+      if (editNotes !== (editOrder.notes || "")) payload.notes = editNotes || null;
+
+      // 아이템 변경 감지
+      const origItems = editOrder.items.map((i) => `${i.product.code}:${i.quantity}`).sort().join(",");
+      const newItems = editCart.map((c) => `${c.product.code}:${c.quantity}`).sort().join(",");
+      if (origItems !== newItems && editCart.length > 0) {
+        // 상품 코드로 ID를 조회해야 하므로 productId가 필요
+        // editCart의 product.id는 code일 수 있으므로, 상품 검색으로 추가한 것만 사용
+        payload.items = editCart.map((c) => ({
+          productId: c.product.id,
+          quantity: c.quantity,
+        }));
+      }
+
+      if (Object.keys(payload).length === 0) {
+        toast.info("변경된 내용이 없습니다");
+        setEditSaving(false);
+        return;
+      }
+
+      const res = await fetch(`/api/seller/orders/${editOrder.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error?.message || "수정 실패");
+        return;
+      }
+      toast.success("주문이 수정되었습니다");
+      setEditOpen(false);
+      fetchOrders();
+    } catch {
+      toast.error("오류가 발생했습니다");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  // === 수정 요청 (PREPARING) ===
+  const openModReqDialog = (order: Order) => {
+    setModReqOrder(order);
+    setModReqName(order.recipientName);
+    setModReqPhone(order.recipientPhone);
+    setModReqAddr(order.recipientAddr);
+    setModReqPostal(order.postalCode || "");
+    setModReqNotes(order.notes || "");
+    setModReqReason("");
+    setDetailOpen(false);
+    setModReqOpen(true);
+  };
+
+  const handleSubmitModReq = async () => {
+    if (!modReqOrder) return;
+    if (!modReqReason.trim()) {
+      toast.error("수정 사유를 입력해주세요");
+      return;
+    }
+
+    setModReqSaving(true);
+    try {
+      const changes: Record<string, unknown> = {};
+      if (modReqName !== modReqOrder.recipientName) changes.recipientName = modReqName;
+      if (modReqPhone !== modReqOrder.recipientPhone) changes.recipientPhone = modReqPhone;
+      if (modReqAddr !== modReqOrder.recipientAddr) changes.recipientAddr = modReqAddr;
+      if (modReqPostal !== (modReqOrder.postalCode || "")) changes.postalCode = modReqPostal || null;
+      if (modReqNotes !== (modReqOrder.notes || "")) changes.notes = modReqNotes || null;
+
+      if (Object.keys(changes).length === 0) {
+        toast.info("변경된 내용이 없습니다");
+        setModReqSaving(false);
+        return;
+      }
+
+      const res = await fetch(`/api/seller/orders/${modReqOrder.id}/modification-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ changes, reason: modReqReason }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error?.message || "요청 실패");
+        return;
+      }
+      toast.success("수정 요청이 접수되었습니다");
+      setModReqOpen(false);
+    } catch {
+      toast.error("오류가 발생했습니다");
+    } finally {
+      setModReqSaving(false);
+    }
+  };
+
+  // 수정 요청 이력 조회
+  const fetchModHistory = async (orderId: string) => {
+    try {
+      const res = await fetch(`/api/seller/orders/${orderId}/modification-request`);
+      const json = await res.json();
+      if (res.ok) setModHistory(json.data);
+      else setModHistory([]);
+    } catch {
+      setModHistory([]);
+    }
+  };
+
+  const openDetail = (order: Order) => {
+    setDetailOrder(order);
+    setDetailOpen(true);
+    if (order.status === "PREPARING" || order.status === "PENDING") {
+      fetchModHistory(order.id);
+    } else {
+      setModHistory([]);
+    }
   };
 
   // === 엑셀 다운로드 ===
@@ -379,35 +560,54 @@ export default function SellerOrdersPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>주문일시</TableHead>
                     <TableHead>주문번호</TableHead>
                     <TableHead>상품</TableHead>
+                    <TableHead className="text-right">상품금액</TableHead>
+                    <TableHead className="text-right">배송비</TableHead>
+                    <TableHead className="text-right">총 주문금액</TableHead>
+                    <TableHead>결제방법</TableHead>
+                    <TableHead>결제상태</TableHead>
                     <TableHead>상태</TableHead>
-                    <TableHead className="text-right">금액</TableHead>
-                    <TableHead>주문일</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {orders.map((order) => {
                     const stCfg = statusConfig[order.status] || statusConfig.PENDING;
+                    const shippingFee = Number(order.totalShippingFee || 0);
+                    const grandTotal = Number(order.totalAmount) + shippingFee;
+                    const isCancelled = order.status === "CANCELLED";
                     return (
                       <TableRow
                         key={order.id}
                         className="cursor-pointer hover:bg-gray-50"
                         onClick={() => openDetail(order)}
                       >
+                        <TableCell className="text-sm text-gray-500 whitespace-nowrap">
+                          {new Date(order.createdAt).toLocaleString("ko-KR")}
+                        </TableCell>
                         <TableCell className="font-medium">{order.orderNumber}</TableCell>
                         <TableCell>
                           {order.items[0]?.product.name}
                           {order.items.length > 1 && ` 외 ${order.items.length - 1}건`}
                         </TableCell>
-                        <TableCell>
-                          <Badge variant={stCfg.variant}>{stCfg.label}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
+                        <TableCell className="text-right">
                           {Number(order.totalAmount).toLocaleString()}원
                         </TableCell>
-                        <TableCell className="text-sm text-gray-500">
-                          {new Date(order.createdAt).toLocaleDateString("ko-KR")}
+                        <TableCell className="text-right">
+                          {shippingFee.toLocaleString()}원
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {grandTotal.toLocaleString()}원
+                        </TableCell>
+                        <TableCell className="text-sm">예치금</TableCell>
+                        <TableCell>
+                          <Badge variant={isCancelled ? "destructive" : "default"}>
+                            {isCancelled ? "환불완료" : "결제완료"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={stCfg.variant}>{stCfg.label}</Badge>
                         </TableCell>
                       </TableRow>
                     );
@@ -594,8 +794,25 @@ export default function SellerOrdersPage() {
                   {new Date(detailOrder.createdAt).toLocaleString("ko-KR")}
                 </div>
                 <div>
-                  <span className="text-gray-500">총액:</span>{" "}
+                  <span className="text-gray-500">상품금액:</span>{" "}
                   <span className="font-semibold">{Number(detailOrder.totalAmount).toLocaleString()}원</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">배송비:</span>{" "}
+                  <span>{Number(detailOrder.totalShippingFee || 0).toLocaleString()}원</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">총 주문금액:</span>{" "}
+                  <span className="font-semibold">
+                    {(Number(detailOrder.totalAmount) + Number(detailOrder.totalShippingFee || 0)).toLocaleString()}원
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">결제:</span>{" "}
+                  예치금 /{" "}
+                  <Badge variant={detailOrder.status === "CANCELLED" ? "destructive" : "default"} className="ml-1">
+                    {detailOrder.status === "CANCELLED" ? "환불완료" : "결제완료"}
+                  </Badge>
                 </div>
               </div>
 
@@ -642,11 +859,252 @@ export default function SellerOrdersPage() {
                   <span className="text-gray-500">메모:</span> {detailOrder.notes}
                 </div>
               )}
+
+              {/* 수정 요청 이력 */}
+              {modHistory.length > 0 && (
+                <div>
+                  <div className="text-sm font-medium mb-2">수정 요청 이력</div>
+                  <div className="space-y-2">
+                    {modHistory.map((req) => (
+                      <div key={req.id} className="rounded border p-2 text-xs">
+                        <div className="flex justify-between">
+                          <Badge
+                            variant={req.status === "APPROVED" ? "default" : req.status === "REJECTED" ? "destructive" : "secondary"}
+                          >
+                            {req.status === "PENDING" ? "대기" : req.status === "APPROVED" ? "승인" : "거절"}
+                          </Badge>
+                          <span className="text-gray-400">
+                            {new Date(req.createdAt).toLocaleString("ko-KR")}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-gray-600">사유: {req.reason}</div>
+                        {req.adminNote && (
+                          <div className="text-gray-500">관리자 메모: {req.adminNote}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDetailOpen(false)}>닫기</Button>
+            <div className="flex gap-2 w-full justify-between">
+              <div className="flex gap-2">
+                {detailOrder?.status === "PENDING" && (
+                  <Button size="sm" onClick={() => openEditDialog(detailOrder)}>
+                    <Pencil className="mr-1 h-4 w-4" />
+                    주문 수정
+                  </Button>
+                )}
+                {detailOrder?.status === "PREPARING" && (
+                  <Button size="sm" variant="outline" onClick={() => openModReqDialog(detailOrder)}>
+                    <FileEdit className="mr-1 h-4 w-4" />
+                    수정 요청
+                  </Button>
+                )}
+              </div>
+              <Button variant="outline" onClick={() => setDetailOpen(false)}>닫기</Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 주문 수정 다이얼로그 (PENDING) */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>주문 수정</DialogTitle>
+            <DialogDescription>
+              {editOrder?.orderNumber} - 대기 상태 주문을 직접 수정합니다.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* 상품 검색 & 수정 */}
+            <div className="space-y-2">
+              <Label>상품 검색 (변경 시)</Label>
+              <Input
+                placeholder="상품명 또는 코드로 검색하여 추가"
+                value={productSearch}
+                onChange={(e) => searchProducts(e.target.value)}
+              />
+              {productLoading && <p className="text-xs text-gray-400">검색 중...</p>}
+              {products.length > 0 && (
+                <div className="max-h-40 overflow-y-auto rounded border">
+                  {products.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex cursor-pointer items-center justify-between px-3 py-2 hover:bg-gray-50"
+                      onClick={() => {
+                        setEditCart((prev) => {
+                          const existing = prev.find((c) => c.product.id === p.id);
+                          if (existing) {
+                            return prev.map((c) =>
+                              c.product.id === p.id ? { ...c, quantity: c.quantity + 1 } : c
+                            );
+                          }
+                          return [...prev, { product: p, quantity: 1 }];
+                        });
+                        setProductSearch("");
+                        setProducts([]);
+                      }}
+                    >
+                      <div>
+                        <span className="text-sm font-medium">{p.name}</span>
+                        <span className="ml-2 text-xs text-gray-400">{p.code}</span>
+                      </div>
+                      <div className="text-sm">
+                        {Number(p.price).toLocaleString()}원
+                        <span className="ml-1 text-xs text-gray-400">재고: {p.stock}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {editCart.length > 0 && (
+              <div className="space-y-2">
+                <Label>주문 상품</Label>
+                <div className="rounded border">
+                  {editCart.map((c) => (
+                    <div key={c.product.id || c.product.code} className="flex items-center justify-between border-b px-3 py-2 last:border-0">
+                      <div className="flex-1">
+                        <span className="text-sm font-medium">{c.product.name}</span>
+                        <span className="ml-2 text-xs text-gray-400">
+                          @{Number(c.product.price).toLocaleString()}원
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min={1}
+                          value={c.quantity}
+                          onChange={(e) => {
+                            const qty = Number(e.target.value);
+                            if (qty <= 0) {
+                              setEditCart((prev) => prev.filter((x) => x.product.id !== c.product.id));
+                            } else {
+                              setEditCart((prev) =>
+                                prev.map((x) => (x.product.id === c.product.id ? { ...x, quantity: qty } : x))
+                              );
+                            }
+                          }}
+                          className="w-20 text-center"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setEditCart((prev) => prev.filter((x) => x.product.id !== c.product.id))}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 수령자 정보 */}
+            <div className="space-y-4">
+              <Label className="text-base font-semibold">수령자 정보</Label>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>이름</Label>
+                  <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>전화번호</Label>
+                  <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="col-span-2 space-y-2">
+                  <Label>주소</Label>
+                  <Input value={editAddr} onChange={(e) => setEditAddr(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>우편번호</Label>
+                  <Input value={editPostal} onChange={(e) => setEditPostal(e.target.value)} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>메모</Label>
+                <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>취소</Button>
+            <Button onClick={handleSaveEdit} disabled={editSaving}>
+              {editSaving ? "저장 중..." : "저장"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 수정 요청 다이얼로그 (PREPARING) */}
+      <Dialog open={modReqOpen} onOpenChange={setModReqOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>주문 수정 요청</DialogTitle>
+            <DialogDescription>
+              {modReqOrder?.orderNumber} - 배송준비 상태의 주문은 관리자 승인 후 수정됩니다.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="rounded bg-yellow-50 p-3 text-sm text-yellow-800">
+              배송준비 상태의 주문은 관리자 승인 후 수정됩니다.
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>수령자 이름</Label>
+                  <Input value={modReqName} onChange={(e) => setModReqName(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>전화번호</Label>
+                  <Input value={modReqPhone} onChange={(e) => setModReqPhone(e.target.value)} />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="col-span-2 space-y-2">
+                  <Label>주소</Label>
+                  <Input value={modReqAddr} onChange={(e) => setModReqAddr(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>우편번호</Label>
+                  <Input value={modReqPostal} onChange={(e) => setModReqPostal(e.target.value)} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>메모</Label>
+                <Input value={modReqNotes} onChange={(e) => setModReqNotes(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>수정 사유 *</Label>
+              <Textarea
+                value={modReqReason}
+                onChange={(e) => setModReqReason(e.target.value)}
+                placeholder="수정이 필요한 사유를 입력해주세요"
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModReqOpen(false)}>취소</Button>
+            <Button onClick={handleSubmitModReq} disabled={modReqSaving || !modReqReason.trim()}>
+              {modReqSaving ? "요청 중..." : "수정 요청"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

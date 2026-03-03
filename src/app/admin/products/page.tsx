@@ -53,6 +53,7 @@ interface Product {
   unit: string;
   stock: number;
   minStock: number;
+  shippingFee: string;
   status: string;
   source: string;
   imageUrl: string | null;
@@ -83,6 +84,7 @@ const emptyForm = {
   unit: "EA",
   stock: "0",
   minStock: "10",
+  shippingFee: "0",
   status: "ACTIVE",
   source: "SELF",
   categoryId: "",
@@ -327,6 +329,7 @@ export default function AdminProductsPage() {
       unit: product.unit,
       stock: String(product.stock),
       minStock: String(product.minStock),
+      shippingFee: product.shippingFee || "0",
       status: product.status,
       source: product.source,
       categoryId: product.category?.id || "",
@@ -352,6 +355,7 @@ export default function AdminProductsPage() {
         unit: form.unit,
         stock: Number(form.stock),
         minStock: Number(form.minStock),
+        shippingFee: Number(form.shippingFee),
         status: form.status,
         source: form.source,
         categoryId: form.categoryId || null,
@@ -1188,6 +1192,15 @@ export default function AdminProductsPage() {
                   type="number"
                   value={form.minStock}
                   onChange={(e) => setForm({ ...form, minStock: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="shippingFee">배송비</Label>
+                <Input
+                  id="shippingFee"
+                  type="number"
+                  value={form.shippingFee}
+                  onChange={(e) => setForm({ ...form, shippingFee: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
