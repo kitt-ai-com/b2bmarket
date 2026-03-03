@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const BUCKET = "products";
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
-      const { error } = await supabaseAdmin.storage
+      const { error } = await getSupabaseAdmin().storage
         .from(BUCKET)
         .upload(filePath, buffer, {
           contentType: file.type,
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const { data: urlData } = supabaseAdmin.storage
+      const { data: urlData } = getSupabaseAdmin().storage
         .from(BUCKET)
         .getPublicUrl(filePath);
 
