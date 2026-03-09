@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSeller } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 import { orderCreateSchema } from "@/lib/validations/order";
 
 // 주문번호 생성: ORD-YYMMDD-XXXX
@@ -16,8 +16,9 @@ function generateOrderNumber() {
 }
 
 export async function GET(request: NextRequest) {
-  const { error, session } = await requireSeller();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   const searchParams = request.nextUrl.searchParams;
   const page = Number(searchParams.get("page") || "1");
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status") || "";
   const search = searchParams.get("search") || "";
 
-  const where: any = { sellerId: session.user.id };
+  const where: any = { sellerId: ctx.userId, ...tenantFilter(ctx) };
   if (status) where.status = status;
   if (search) {
     where.OR = [
@@ -56,8 +57,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { error, session } = await requireSeller();
-  if (error) return error;
+  const { error: postError, ctx: postCtx } = await getTenantContext();
+  if (postError) return postError;
+  if (postCtx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   const body = await request.json();
   const parsed = orderCreateSchema.safeParse(body);
@@ -69,7 +71,7 @@ export async function POST(request: NextRequest) {
   }
 
   const validated = parsed.data;
-  const sellerId = session.user.id;
+  const sellerId = postCtx.userId;
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -162,6 +164,7 @@ export async function POST(request: NextRequest) {
         data: {
           orderNumber: generateOrderNumber(),
           sellerId,
+          tenantId: postCtx.tenantId,
           recipientName: validated.recipientName,
           recipientPhone: validated.recipientPhone,
           recipientAddr: validated.recipientAddr,

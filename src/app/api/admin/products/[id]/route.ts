@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 import { productUpdateSchema } from "@/lib/validations/product";
 import { createNotification } from "@/lib/notification";
 
@@ -10,13 +10,14 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const { id } = await params;
 
-  const product = await prisma.product.findUnique({
-    where: { id },
+  const product = await prisma.product.findFirst({
+    where: { id, ...tenantFilter(ctx) },
     include: {
       category: { select: { id: true, name: true } },
       supplier: { select: { id: true, name: true } },
@@ -42,8 +43,9 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const { id } = await params;
 
@@ -53,11 +55,18 @@ export async function PATCH(
 
     const { gradePrices, ...productData } = validated;
 
-    // 가격 변경 감지를 위해 기존 상품 조회
-    const existingProduct = await prisma.product.findUnique({
-      where: { id },
+    // 테넌트 소유 확인 + 가격 변경 감지를 위해 기존 상품 조회
+    const existingProduct = await prisma.product.findFirst({
+      where: { id, ...tenantFilter(ctx) },
       select: { name: true, code: true, basePrice: true },
     });
+
+    if (!existingProduct) {
+      return NextResponse.json(
+        { error: { code: "NOT_FOUND", message: "상품을 찾을 수 없습니다" } },
+        { status: 404 }
+      );
+    }
 
     const product = await prisma.$transaction(async (tx) => {
       if (gradePrices) {
@@ -132,10 +141,22 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const { id } = await params;
+
+  // 테넌트 소유 확인
+  const existing = await prisma.product.findFirst({
+    where: { id, ...tenantFilter(ctx) },
+  });
+  if (!existing) {
+    return NextResponse.json(
+      { error: { code: "NOT_FOUND", message: "상품을 찾을 수 없습니다" } },
+      { status: 404 }
+    );
+  }
 
   const hasOrders = await prisma.orderItem.count({ where: { productId: id } });
   if (hasOrders > 0) {

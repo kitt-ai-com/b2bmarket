@@ -2,18 +2,19 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSeller } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 import { depositRequestSchema } from "@/lib/validations/deposit";
 
 export async function GET(request: NextRequest) {
-  const { error, session } = await requireSeller();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   try {
     const page = Number(request.nextUrl.searchParams.get("page") || "1");
     const limit = Number(request.nextUrl.searchParams.get("limit") || "20");
 
-    const where = { sellerId: session.user.id };
+    const where = { sellerId: ctx.userId, ...tenantFilter(ctx) };
 
     const [requests, total] = await Promise.all([
       prisma.depositRequest.findMany({
@@ -39,8 +40,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { error, session } = await requireSeller();
-  if (error) return error;
+  const { error: postError, ctx: postCtx } = await getTenantContext();
+  if (postError) return postError;
+  if (postCtx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   try {
     const body = await request.json();
@@ -54,7 +56,8 @@ export async function POST(request: NextRequest) {
 
     const depositRequest = await prisma.depositRequest.create({
       data: {
-        sellerId: session.user.id,
+        sellerId: postCtx.userId,
+        tenantId: postCtx.tenantId,
         amount: parsed.data.amount,
         depositorName: parsed.data.depositorName,
       },

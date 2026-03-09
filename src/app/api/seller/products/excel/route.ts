@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSeller } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 import { generateExcel, type ColumnDef } from "@/lib/excel";
 
 const PRODUCT_COLUMNS: ColumnDef[] = [
@@ -18,14 +18,15 @@ const PRODUCT_COLUMNS: ColumnDef[] = [
 ];
 
 export async function GET(request: NextRequest) {
-  const { error, session } = await requireSeller();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   const searchParams = request.nextUrl.searchParams;
   const search = searchParams.get("search") || "";
   const categoryId = searchParams.get("categoryId") || "";
 
-  const where: any = { status: "ACTIVE" };
+  const where: any = { status: "ACTIVE", ...tenantFilter(ctx) };
   if (search) {
     where.OR = [
       { name: { contains: search, mode: "insensitive" } },
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
   if (categoryId) where.categoryId = categoryId;
 
   const sellerProfile = await prisma.sellerProfile.findUnique({
-    where: { userId: session.user.id },
+    where: { userId: ctx.userId },
     select: { gradeId: true },
   });
 
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
         ? { where: { gradeId: sellerProfile.gradeId }, select: { price: true } }
         : false,
       sellerPrices: {
-        where: { sellerId: session.user.id },
+        where: { sellerId: ctx.userId },
         select: { price: true },
       },
     },

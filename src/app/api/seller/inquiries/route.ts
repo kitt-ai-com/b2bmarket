@@ -2,18 +2,19 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSeller } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 
 export async function GET(request: NextRequest) {
-  const { error, session } = await requireSeller();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   const searchParams = request.nextUrl.searchParams;
   const page = Number(searchParams.get("page") || "1");
   const limit = Number(searchParams.get("limit") || "20");
   const status = searchParams.get("status") || "";
 
-  const where: any = { userId: session.user.id };
+  const where: any = { userId: ctx.userId, ...tenantFilter(ctx) };
   if (status) where.status = status;
 
   const [inquiries, total] = await Promise.all([
@@ -33,8 +34,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { error, session } = await requireSeller();
-  if (error) return error;
+  const { error: postError, ctx: postCtx } = await getTenantContext();
+  if (postError) return postError;
+  if (postCtx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   const body = await request.json();
   const { title, content } = body;
@@ -48,7 +50,8 @@ export async function POST(request: NextRequest) {
 
   const inquiry = await prisma.inquiry.create({
     data: {
-      userId: session.user.id,
+      userId: postCtx.userId,
+      tenantId: postCtx.tenantId,
       title: title.trim(),
       content: content.trim(),
     },

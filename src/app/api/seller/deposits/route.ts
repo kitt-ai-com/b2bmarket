@@ -2,17 +2,18 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSeller } from "@/lib/auth-guard";
+import { getTenantContext } from "@/lib/tenant";
 
 export async function GET(request: NextRequest) {
-  const { error, session } = await requireSeller();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   const page = Number(request.nextUrl.searchParams.get("page") || "1");
   const limit = Number(request.nextUrl.searchParams.get("limit") || "20");
 
   const deposit = await prisma.deposit.findUnique({
-    where: { sellerId: session.user.id },
+    where: { sellerId: ctx.userId },
   });
 
   if (!deposit) {

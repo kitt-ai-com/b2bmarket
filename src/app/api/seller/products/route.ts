@@ -2,11 +2,12 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSeller } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 
 export async function GET(request: NextRequest) {
-  const { error, session } = await requireSeller();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   const searchParams = request.nextUrl.searchParams;
   const page = Number(searchParams.get("page") || "1");
@@ -50,9 +51,12 @@ export async function GET(request: NextRequest) {
 
   // 셀러의 등급 조회
   const sellerProfile = await prisma.sellerProfile.findUnique({
-    where: { userId: session.user.id },
+    where: { userId: ctx.userId },
     select: { gradeId: true },
   });
+
+  // tenantFilter 적용
+  Object.assign(where, tenantFilter(ctx));
 
   const [products, total] = await Promise.all([
     prisma.product.findMany({
@@ -69,7 +73,7 @@ export async function GET(request: NextRequest) {
             }
           : false,
         sellerPrices: {
-          where: { sellerId: session.user.id },
+          where: { sellerId: ctx.userId },
           select: { price: true },
         },
       },

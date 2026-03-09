@@ -2,11 +2,12 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 
 export async function PATCH(request: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   try {
     const body = await request.json();
@@ -23,6 +24,7 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    const tenantWhere = tenantFilter(ctx);
     let updated = 0;
 
     switch (action) {
@@ -35,7 +37,7 @@ export async function PATCH(request: NextRequest) {
           );
         }
         const result = await prisma.product.updateMany({
-          where: { id: { in: ids } },
+          where: { id: { in: ids }, ...tenantWhere },
           data: { status: value },
         });
         updated = result.count;
@@ -44,7 +46,7 @@ export async function PATCH(request: NextRequest) {
 
       case "category": {
         const result = await prisma.product.updateMany({
-          where: { id: { in: ids } },
+          where: { id: { in: ids }, ...tenantWhere },
           data: { categoryId: value || null },
         });
         updated = result.count;
@@ -60,7 +62,7 @@ export async function PATCH(request: NextRequest) {
           );
         }
         const result = await prisma.product.updateMany({
-          where: { id: { in: ids } },
+          where: { id: { in: ids }, ...tenantWhere },
           data: { source: value },
         });
         updated = result.count;
@@ -77,14 +79,14 @@ export async function PATCH(request: NextRequest) {
             );
           }
           const result = await prisma.product.updateMany({
-            where: { id: { in: ids } },
+            where: { id: { in: ids }, ...tenantWhere },
             data: { basePrice: amount },
           });
           updated = result.count;
         } else if (mode === "percent") {
           // 퍼센트 변경은 개별 처리 필요
           const products = await prisma.product.findMany({
-            where: { id: { in: ids } },
+            where: { id: { in: ids }, ...tenantWhere },
             select: { id: true, basePrice: true },
           });
           const multiplier = 1 + amount / 100;
@@ -105,13 +107,13 @@ export async function PATCH(request: NextRequest) {
         const { mode, amount } = value as { mode: "set" | "percent"; amount: number };
         if (mode === "set") {
           const result = await prisma.product.updateMany({
-            where: { id: { in: ids } },
+            where: { id: { in: ids }, ...tenantWhere },
             data: { costPrice: amount >= 0 ? amount : null },
           });
           updated = result.count;
         } else if (mode === "percent") {
           const products = await prisma.product.findMany({
-            where: { id: { in: ids }, costPrice: { not: null } },
+            where: { id: { in: ids }, costPrice: { not: null }, ...tenantWhere },
             select: { id: true, costPrice: true },
           });
           const multiplier = 1 + amount / 100;
@@ -132,13 +134,13 @@ export async function PATCH(request: NextRequest) {
         const { mode, amount } = value as { mode: "set" | "add"; amount: number };
         if (mode === "set") {
           const result = await prisma.product.updateMany({
-            where: { id: { in: ids } },
+            where: { id: { in: ids }, ...tenantWhere },
             data: { stock: Math.max(0, amount) },
           });
           updated = result.count;
         } else if (mode === "add") {
           const products = await prisma.product.findMany({
-            where: { id: { in: ids } },
+            where: { id: { in: ids }, ...tenantWhere },
             select: { id: true, stock: true },
           });
           await prisma.$transaction(

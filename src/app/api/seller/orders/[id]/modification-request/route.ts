@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSeller } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 import { orderModRequestSchema } from "@/lib/validations/order";
 import { createNotification } from "@/lib/notification";
 
@@ -10,14 +10,15 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error, session } = await requireSeller();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   const { id } = await params;
 
   // 주문 소유 확인
   const order = await prisma.order.findFirst({
-    where: { id, sellerId: session.user.id },
+    where: { id, sellerId: ctx.userId, ...tenantFilter(ctx) },
     select: { id: true },
   });
   if (!order) {
@@ -39,11 +40,12 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error, session } = await requireSeller();
-  if (error) return error;
+  const { error: postError, ctx: postCtx } = await getTenantContext();
+  if (postError) return postError;
+  if (postCtx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   const { id } = await params;
-  const sellerId = session.user.id;
+  const sellerId = postCtx.userId;
 
   const body = await request.json();
   const parsed = orderModRequestSchema.safeParse(body);
@@ -58,7 +60,7 @@ export async function POST(
 
   // 주문 확인
   const order = await prisma.order.findFirst({
-    where: { id, sellerId },
+    where: { id, sellerId, ...tenantFilter(postCtx) },
     select: { id: true, orderNumber: true, status: true },
   });
 

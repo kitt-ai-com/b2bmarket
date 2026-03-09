@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 import { generateExcel, parseExcel, type ColumnDef } from "@/lib/excel";
 
 const PRODUCT_COLUMNS: ColumnDef[] = [
@@ -21,8 +21,9 @@ const PRODUCT_COLUMNS: ColumnDef[] = [
 ];
 
 export async function GET(request: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const searchParams = request.nextUrl.searchParams;
   const status = searchParams.get("status") || "";
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const where: any = {};
+  const where: any = { ...tenantFilter(ctx) };
   if (status) where.status = status;
   if (categoryId) where.categoryId = categoryId;
   if (source) where.source = source;
@@ -86,8 +87,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   try {
     const formData = await request.formData();
@@ -140,15 +142,15 @@ export async function POST(request: NextRequest) {
         if (category) data.categoryId = category.id;
       }
 
-      const existing = await prisma.product.findUnique({
-        where: { code: row.code },
+      const existing = await prisma.product.findFirst({
+        where: { code: row.code, ...tenantFilter(ctx) },
       });
 
       if (existing) {
-        await prisma.product.update({ where: { code: row.code }, data });
+        await prisma.product.update({ where: { id: existing.id }, data });
         updated++;
       } else {
-        await prisma.product.create({ data: { ...data, code: row.code } });
+        await prisma.product.create({ data: { ...data, code: row.code, tenantId: ctx.tenantId } });
         created++;
       }
     }

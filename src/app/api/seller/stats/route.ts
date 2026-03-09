@@ -2,13 +2,14 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSeller } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 
 export async function GET(request: NextRequest) {
-  const { error, session } = await requireSeller();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
-  const sellerId = session.user.id;
+  const sellerId = ctx.userId;
   const searchParams = request.nextUrl.searchParams;
   const months = Number(searchParams.get("months") || "6");
 
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest) {
       prisma.order.aggregate({
         where: {
           sellerId,
+          ...tenantFilter(ctx),
           createdAt: { gte: start, lt: end },
           status: { notIn: ["CANCELLED", "RETURNED"] },
         },
@@ -31,6 +33,7 @@ export async function GET(request: NextRequest) {
       prisma.order.count({
         where: {
           sellerId,
+          ...tenantFilter(ctx),
           createdAt: { gte: start, lt: end },
           status: { notIn: ["CANCELLED", "RETURNED"] },
         },
@@ -46,14 +49,14 @@ export async function GET(request: NextRequest) {
   // 주문 상태별
   const statusCounts = await prisma.order.groupBy({
     by: ["status"],
-    where: { sellerId },
+    where: { sellerId, ...tenantFilter(ctx) },
     _count: { _all: true },
   });
 
   // 내 상위 상품
   const topProducts = await prisma.orderItem.groupBy({
     by: ["productId"],
-    where: { order: { sellerId } },
+    where: { order: { sellerId, ...tenantFilter(ctx) } },
     _sum: { quantity: true, totalPrice: true },
     orderBy: { _sum: { quantity: "desc" } },
     take: 10,

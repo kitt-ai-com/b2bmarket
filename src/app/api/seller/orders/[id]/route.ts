@@ -2,20 +2,21 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSeller } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 import { orderDirectEditSchema } from "@/lib/validations/order";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error, session } = await requireSeller();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   const { id } = await params;
 
   const order = await prisma.order.findFirst({
-    where: { id, sellerId: session.user.id },
+    where: { id, sellerId: ctx.userId, ...tenantFilter(ctx) },
     include: {
       items: {
         include: {
@@ -41,11 +42,12 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error, session } = await requireSeller();
-  if (error) return error;
+  const { error: patchError, ctx: patchCtx } = await getTenantContext();
+  if (patchError) return patchError;
+  if (patchCtx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   const { id } = await params;
-  const sellerId = session.user.id;
+  const sellerId = patchCtx.userId;
 
   const body = await request.json();
   const parsed = orderDirectEditSchema.safeParse(body);
@@ -60,7 +62,7 @@ export async function PATCH(
 
   try {
     const order = await prisma.order.findFirst({
-      where: { id, sellerId },
+      where: { id, sellerId, ...tenantFilter(patchCtx) },
       include: { items: true },
     });
 

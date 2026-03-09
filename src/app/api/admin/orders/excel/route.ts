@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 import { generateExcel, parseExcel, type ColumnDef } from "@/lib/excel";
 
 const ORDER_COLUMNS: ColumnDef[] = [
@@ -34,8 +34,9 @@ const UPLOAD_COLUMNS: ColumnDef[] = [
 ];
 
 export async function GET(request: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const searchParams = request.nextUrl.searchParams;
   const status = searchParams.get("status") || "";
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const where: any = {};
+  const where: any = { ...tenantFilter(ctx) };
   if (status) where.status = status;
   if (sellerId) where.sellerId = sellerId;
   if (dateFrom || dateTo) {
@@ -119,8 +120,9 @@ function generateOrderNumber() {
 }
 
 export async function POST(request: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   try {
     const formData = await request.formData();
@@ -214,6 +216,7 @@ export async function POST(request: NextRequest) {
           postalCode: first.postalCode || null,
           notes: first.notes || null,
           totalAmount,
+          tenantId: ctx.tenantId,
           items: { create: items },
         },
       });

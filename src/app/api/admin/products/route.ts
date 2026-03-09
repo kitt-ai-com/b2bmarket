@@ -2,13 +2,14 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 import { productCreateSchema } from "@/lib/validations/product";
 import { createNotification } from "@/lib/notification";
 
 export async function GET(request: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const searchParams = request.nextUrl.searchParams;
   const page = Number(searchParams.get("page") || "1");
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
   const lowStock = searchParams.get("lowStock") === "true";
   const zeroStock = searchParams.get("zeroStock") === "true";
 
-  const where: any = {};
+  const where: any = { ...tenantFilter(ctx) };
   if (search) {
     where.OR = [
       { name: { contains: search, mode: "insensitive" } },
@@ -101,8 +102,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: Request) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   try {
     const body = await request.json();
@@ -113,6 +115,7 @@ export async function POST(request: Request) {
     const product = await prisma.product.create({
       data: {
         ...productData,
+        tenantId: ctx.tenantId,
         basePrice: productData.basePrice,
         costPrice: productData.costPrice,
         gradePrices: gradePrices?.length

@@ -2,20 +2,21 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 import { sellerUpdateSchema } from "@/lib/validations/admin";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const { id } = await params;
 
-  const seller = await prisma.user.findUnique({
-    where: { id, role: "SELLER" },
+  const seller = await prisma.user.findFirst({
+    where: { id, role: "SELLER", ...tenantFilter(ctx) },
     select: {
       id: true,
       email: true,
@@ -65,8 +66,9 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const { id } = await params;
 
@@ -74,8 +76,8 @@ export async function PATCH(
     const body = await request.json();
     const validated = sellerUpdateSchema.parse(body);
 
-    const seller = await prisma.user.findUnique({
-      where: { id, role: "SELLER" },
+    const seller = await prisma.user.findFirst({
+      where: { id, role: "SELLER", ...tenantFilter(ctx) },
       include: { sellerProfile: true },
     });
 

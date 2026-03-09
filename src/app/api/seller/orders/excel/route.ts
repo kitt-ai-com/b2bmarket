@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSeller } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 import { generateExcel, parseExcel, type ColumnDef } from "@/lib/excel";
 
 const ORDER_DOWNLOAD_COLUMNS: ColumnDef[] = [
@@ -31,8 +31,9 @@ const ORDER_UPLOAD_COLUMNS: ColumnDef[] = [
 ];
 
 export async function GET(request: NextRequest) {
-  const { error, session } = await requireSeller();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   const searchParams = request.nextUrl.searchParams;
   const status = searchParams.get("status") || "";
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const where: any = { sellerId: session.user.id };
+  const where: any = { sellerId: ctx.userId, ...tenantFilter(ctx) };
   if (status) where.status = status;
 
   const orders = await prisma.order.findMany({
@@ -99,8 +100,9 @@ function generateOrderNumber() {
 }
 
 export async function POST(request: NextRequest) {
-  const { error, session } = await requireSeller();
-  if (error) return error;
+  const { error: postError, ctx: postCtx } = await getTenantContext();
+  if (postError) return postError;
+  if (postCtx.role !== "SELLER") return NextResponse.json({ error: { message: "셀러만 접근 가능합니다" } }, { status: 403 });
 
   try {
     const formData = await request.formData();
@@ -122,7 +124,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const sellerId = session.user.id;
+    const sellerId = postCtx.userId;
 
     // 셀러 프로필 조회 (등급가격)
     const sellerProfile = await prisma.sellerProfile.findUnique({
@@ -244,6 +246,7 @@ export async function POST(request: NextRequest) {
           data: {
             orderNumber: generateOrderNumber(),
             sellerId,
+            tenantId: postCtx.tenantId,
             recipientName: first.recipientName,
             recipientPhone: first.recipientPhone,
             recipientAddr: first.recipientAddr,
