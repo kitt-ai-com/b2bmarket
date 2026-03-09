@@ -9,6 +9,7 @@ declare module "next-auth" {
   interface User {
     role: UserRole;
     status: UserStatus;
+    tenantId?: string;
   }
   interface Session {
     user: {
@@ -17,7 +18,14 @@ declare module "next-auth" {
       name: string;
       role: UserRole;
       status: UserStatus;
+      tenantId?: string;
     };
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    tenantId?: string;
   }
 }
 
@@ -37,6 +45,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         const user = await prisma.user.findUnique({
           where: { email: credentials.email as string },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            password: true,
+            role: true,
+            status: true,
+            tenantId: true,
+          },
         });
 
         if (!user) return null;
@@ -56,6 +73,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           name: user.name,
           role: user.role,
           status: user.status,
+          tenantId: user.tenantId ?? undefined,
         };
       },
     }),

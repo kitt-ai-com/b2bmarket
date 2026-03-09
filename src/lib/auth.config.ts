@@ -13,6 +13,7 @@ export const authConfig = {
         token.id = user.id!;
         token.role = (user as any).role;
         token.status = (user as any).status;
+        token.tenantId = (user as any).tenantId;
       }
       return token;
     },
@@ -20,6 +21,7 @@ export const authConfig = {
       (session.user as any).id = token.id;
       (session.user as any).role = token.role;
       (session.user as any).status = token.status;
+      (session.user as any).tenantId = token.tenantId;
       return session;
     },
   },
