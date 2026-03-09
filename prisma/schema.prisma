@@ -66,8 +66,8 @@ model SellerProfile {
 
 model SellerGrade {
   id            String          @id @default(cuid())
-  name          String          @unique
-  level         Int             @unique
+  name          String
+  level         Int
   feeRate       Decimal
   description   String?
   createdAt     DateTime        @default(now())
@@ -78,6 +78,9 @@ model SellerGrade {
 
   tenantId      String?
   tenant        Tenant?          @relation(fields: [tenantId], references: [id])
+
+  @@unique([name, tenantId])
+  @@unique([level, tenantId])
 }
 
 // ============================================
