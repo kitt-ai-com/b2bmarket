@@ -2,15 +2,16 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 import { claimUpdateSchema } from "@/lib/validations/claim";
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const { id } = await params;
   const body = await request.json();

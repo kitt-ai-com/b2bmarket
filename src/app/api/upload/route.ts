@@ -1,20 +1,17 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getTenantContext } from "@/lib/tenant";
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const BUCKET = "products";
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json(
-      { error: { message: "인증이 필요합니다" } },
-      { status: 401 }
-    );
-  }
+  const { error, ctx } = await getTenantContext();
+  if (error) return error;
+  // ctx available for future tenant-scoped upload logic
+  void ctx;
 
   try {
     const formData = await req.formData();

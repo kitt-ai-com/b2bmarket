@@ -2,18 +2,19 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 
 export async function GET(request: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const searchParams = request.nextUrl.searchParams;
   const page = Number(searchParams.get("page") || "1");
   const limit = Number(searchParams.get("limit") || "20");
   const search = searchParams.get("search") || "";
 
-  const where: any = {};
+  const where: any = { ...tenantFilter(ctx) };
   if (search) {
     where.OR = [
       { title: { contains: search, mode: "insensitive" } },
@@ -38,8 +39,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { error, session } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const body = await request.json();
   const { title, content, isImportant } = body;
@@ -56,7 +58,8 @@ export async function POST(request: NextRequest) {
       title: title.trim(),
       content: content.trim(),
       isImportant: isImportant || false,
-      authorId: session.user.id,
+      authorId: ctx.userId,
+      tenantId: ctx.tenantId,
     },
   });
 

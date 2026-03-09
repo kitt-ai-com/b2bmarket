@@ -2,18 +2,19 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 
 export async function GET(request: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const searchParams = request.nextUrl.searchParams;
   const page = Number(searchParams.get("page") || "1");
   const limit = Number(searchParams.get("limit") || "20");
   const type = searchParams.get("type") || "";
 
-  const where: any = {};
+  const where: any = { ...tenantFilter(ctx) };
   if (type) where.type = type;
 
   const [notifications, total] = await Promise.all([
@@ -35,8 +36,9 @@ export async function GET(request: NextRequest) {
 
 // 알림 생성 (관리자가 수동으로 전체 또는 특정 셀러에게)
 export async function POST(request: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const body = await request.json();
   const { userId, type, title, message } = body;
@@ -51,14 +53,14 @@ export async function POST(request: NextRequest) {
   // 특정 유저에게 또는 전체 셀러에게
   if (userId) {
     const notification = await prisma.notification.create({
-      data: { userId, type: type || "SYSTEM", title, message },
+      data: { userId, type: type || "SYSTEM", title, message, tenantId: ctx.tenantId },
     });
     return NextResponse.json({ data: notification }, { status: 201 });
   }
 
   // 전체 셀러에게 발송
   const sellers = await prisma.user.findMany({
-    where: { role: "SELLER", status: "ACTIVE" },
+    where: { ...tenantFilter(ctx), role: "SELLER", status: "ACTIVE" },
     select: { id: true },
   });
 
@@ -68,6 +70,7 @@ export async function POST(request: NextRequest) {
       type: type || "NOTICE",
       title,
       message,
+      tenantId: ctx.tenantId,
     })),
   });
 

@@ -2,11 +2,12 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 
 export async function GET(request: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const searchParams = request.nextUrl.searchParams;
   const page = Number(searchParams.get("page") || "1");
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
   const search = searchParams.get("search") || "";
 
   // ACTIVE 셀러 목록 조회 (예치금 잔액 포함)
-  const where: any = { role: "SELLER", status: "ACTIVE" };
+  const where: any = { ...tenantFilter(ctx), role: "SELLER", status: "ACTIVE" };
   if (search) {
     where.OR = [
       { name: { contains: search, mode: "insensitive" } },

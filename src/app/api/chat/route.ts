@@ -1,21 +1,27 @@
 export const runtime = "nodejs";
 
 import { NextRequest } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { GoogleGenerativeAI, type Content, type Part } from "@google/generative-ai";
 import { chatTools, executeTool } from "@/lib/chat/tools";
 import { getSystemPrompt } from "@/lib/chat/system-prompt";
+import { getTenantContext, checkUsageLimit, incrementUsage } from "@/lib/tenant";
 
 const MAX_TOOL_ROUNDS = 5;
 
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return new Response(JSON.stringify({ error: { code: "UNAUTHORIZED", message: "로그인이 필요합니다" } }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+  const { error, ctx } = await getTenantContext();
+  if (error) return error;
+
+  // AI 채팅 사용량 체크 (SUPER_ADMIN은 제한 없음)
+  if (!ctx.isSuperAdmin && ctx.tenantId) {
+    const usageCheck = await checkUsageLimit(ctx.tenantId, "aiChats");
+    if (!usageCheck.allowed) {
+      return new Response(JSON.stringify({ error: { code: "USAGE_LIMIT", message: usageCheck.message } }), {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -37,16 +43,20 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const userId = session.user.id;
-  const role = (session.user as Record<string, unknown>).role as string;
-  const userName = session.user.name || "사용자";
+  const userId = ctx.userId;
+  const role = ctx.role;
+  const tenantId = ctx.tenantId || undefined;
+
+  // userName은 DB에서 조회
+  const currentUser = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+  const userName = currentUser?.name || "사용자";
 
   // Save user message to DB (include file name if attached)
   const dbContent = fileContext
     ? `${userMessage}\n\n[첨부파일: ${fileContext.fileName}]`
     : userMessage;
   await prisma.chatMessage.create({
-    data: { userId, role: "USER", content: dbContent },
+    data: { userId, role: "USER", content: dbContent, tenantId },
   });
 
   // Load recent conversation history
@@ -145,7 +155,7 @@ export async function POST(request: NextRequest) {
             const fcArgs = (fc.args || {}) as Record<string, unknown>;
             send("tool_use", { name: fc.name, args: fcArgs });
 
-            const toolResult = await executeTool(fc.name, fcArgs, userId, role);
+            const toolResult = await executeTool(fc.name, fcArgs, userId, role, tenantId);
 
             // Check for chart data
             if (toolResult && typeof toolResult === "object" && (toolResult as Record<string, unknown>).__chart) {
@@ -204,8 +214,13 @@ export async function POST(request: NextRequest) {
 
         // Save assistant response to DB
         const saved = await prisma.chatMessage.create({
-          data: { userId, role: "ASSISTANT", content: finalText },
+          data: { userId, role: "ASSISTANT", content: finalText, tenantId },
         });
+
+        // 사용량 증가 (정상 응답 완료 후)
+        if (!ctx.isSuperAdmin && ctx.tenantId) {
+          await incrementUsage(ctx.tenantId, "aiChats");
+        }
 
         send("done", { messageId: saved.id });
       } catch (err) {

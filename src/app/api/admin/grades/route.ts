@@ -2,14 +2,16 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 import { gradeCreateSchema } from "@/lib/validations/admin";
 
 export async function GET() {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const grades = await prisma.sellerGrade.findMany({
+    where: { ...tenantFilter(ctx) },
     orderBy: { level: "desc" },
     include: { _count: { select: { sellers: true } } },
   });
@@ -18,15 +20,16 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   try {
     const body = await request.json();
     const validated = gradeCreateSchema.parse(body);
 
     const grade = await prisma.sellerGrade.create({
-      data: validated,
+      data: { ...validated, tenantId: ctx.tenantId },
     });
 
     return NextResponse.json({ data: grade }, { status: 201 });

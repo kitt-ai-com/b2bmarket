@@ -1,21 +1,18 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import * as XLSX from "xlsx";
+import { getTenantContext } from "@/lib/tenant";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_EXTENSIONS = [".xlsx", ".xls", ".csv", ".png", ".jpg", ".jpeg", ".webp"];
 const MAX_ROWS = 200; // 엑셀 최대 행 수 제한
 
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json(
-      { error: { message: "로그인이 필요합니다" } },
-      { status: 401 }
-    );
-  }
+  const { error, ctx } = await getTenantContext();
+  if (error) return error;
+  // ctx available for future tenant-scoped upload logic
+  void ctx;
 
   const formData = await request.formData();
   const file = formData.get("file") as File | null;

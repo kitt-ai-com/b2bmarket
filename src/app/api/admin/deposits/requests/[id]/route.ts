@@ -2,14 +2,15 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error, session } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const { id } = await params;
   const body = await request.json();
@@ -44,7 +45,7 @@ export async function PATCH(
         status: "REJECTED",
         adminNote: adminNote || null,
         processedAt: new Date(),
-        processedBy: session!.user!.id,
+        processedBy: ctx.userId,
       },
     });
     return NextResponse.json({ data: updated });
@@ -76,7 +77,7 @@ export async function PATCH(
         amount: depositRequest.amount,
         balanceAfter: newBalance,
         description: `충전 신청 승인 (입금자: ${depositRequest.depositorName})`,
-        adminId: session!.user!.id,
+        adminId: ctx.userId,
       },
     });
 
@@ -86,7 +87,7 @@ export async function PATCH(
         status: "APPROVED",
         adminNote: adminNote || null,
         processedAt: new Date(),
-        processedBy: session!.user!.id,
+        processedBy: ctx.userId,
       },
     });
 

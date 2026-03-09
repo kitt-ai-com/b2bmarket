@@ -2,11 +2,12 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getTenantContext, tenantFilter } from "@/lib/tenant";
 
 export async function GET(request: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error, ctx } = await getTenantContext();
   if (error) return error;
+  if (ctx.role === "SELLER") return NextResponse.json({ error: { message: "권한이 없습니다" } }, { status: 403 });
 
   const searchParams = request.nextUrl.searchParams;
   const months = Number(searchParams.get("months") || "6");
@@ -21,6 +22,7 @@ export async function GET(request: NextRequest) {
     const [agg, count] = await Promise.all([
       prisma.order.aggregate({
         where: {
+          ...tenantFilter(ctx),
           createdAt: { gte: start, lt: end },
           status: { notIn: ["CANCELLED", "RETURNED"] },
         },
@@ -28,6 +30,7 @@ export async function GET(request: NextRequest) {
       }),
       prisma.order.count({
         where: {
+          ...tenantFilter(ctx),
           createdAt: { gte: start, lt: end },
           status: { notIn: ["CANCELLED", "RETURNED"] },
         },
@@ -43,12 +46,14 @@ export async function GET(request: NextRequest) {
   // 주문 상태별 건수
   const statusCounts = await prisma.order.groupBy({
     by: ["status"],
+    where: { ...tenantFilter(ctx) },
     _count: { _all: true },
   });
 
   // 상위 상품 (주문 수량 기준)
   const topProducts = await prisma.orderItem.groupBy({
     by: ["productId"],
+    where: { order: { ...tenantFilter(ctx) } },
     _sum: { quantity: true, totalPrice: true },
     orderBy: { _sum: { quantity: "desc" } },
     take: 10,
@@ -72,7 +77,7 @@ export async function GET(request: NextRequest) {
   // 셀러별 매출 상위
   const topSellers = await prisma.order.groupBy({
     by: ["sellerId"],
-    where: { status: { notIn: ["CANCELLED", "RETURNED"] } },
+    where: { ...tenantFilter(ctx), status: { notIn: ["CANCELLED", "RETURNED"] } },
     _sum: { totalAmount: true },
     _count: { _all: true },
     orderBy: { _sum: { totalAmount: "desc" } },
@@ -99,18 +104,18 @@ export async function GET(request: NextRequest) {
 
   const [thisMonthAgg, lastMonthAgg, thisMonthOrders, lastMonthOrders] = await Promise.all([
     prisma.order.aggregate({
-      where: { createdAt: { gte: thisMonthStart }, status: { notIn: ["CANCELLED", "RETURNED"] } },
+      where: { ...tenantFilter(ctx), createdAt: { gte: thisMonthStart }, status: { notIn: ["CANCELLED", "RETURNED"] } },
       _sum: { totalAmount: true },
     }),
     prisma.order.aggregate({
-      where: { createdAt: { gte: lastMonthStart, lt: thisMonthStart }, status: { notIn: ["CANCELLED", "RETURNED"] } },
+      where: { ...tenantFilter(ctx), createdAt: { gte: lastMonthStart, lt: thisMonthStart }, status: { notIn: ["CANCELLED", "RETURNED"] } },
       _sum: { totalAmount: true },
     }),
     prisma.order.count({
-      where: { createdAt: { gte: thisMonthStart }, status: { notIn: ["CANCELLED", "RETURNED"] } },
+      where: { ...tenantFilter(ctx), createdAt: { gte: thisMonthStart }, status: { notIn: ["CANCELLED", "RETURNED"] } },
     }),
     prisma.order.count({
-      where: { createdAt: { gte: lastMonthStart, lt: thisMonthStart }, status: { notIn: ["CANCELLED", "RETURNED"] } },
+      where: { ...tenantFilter(ctx), createdAt: { gte: lastMonthStart, lt: thisMonthStart }, status: { notIn: ["CANCELLED", "RETURNED"] } },
     }),
   ]);
 

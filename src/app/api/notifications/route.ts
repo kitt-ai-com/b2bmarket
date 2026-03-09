@@ -2,26 +2,24 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
+import { getTenantContext } from "@/lib/tenant";
 
 // 내 알림 조회 (모든 역할 공용)
 export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: { message: "로그인이 필요합니다" } }, { status: 401 });
-  }
+  const { error, ctx } = await getTenantContext();
+  if (error) return error;
 
   const searchParams = request.nextUrl.searchParams;
   const limit = Math.min(Number(searchParams.get("limit") || "20"), 50);
 
   const [notifications, unreadCount] = await Promise.all([
     prisma.notification.findMany({
-      where: { userId: session.user.id },
+      where: { userId: ctx.userId },
       take: limit,
       orderBy: { createdAt: "desc" },
     }),
     prisma.notification.count({
-      where: { userId: session.user.id, isRead: false },
+      where: { userId: ctx.userId, isRead: false },
     }),
   ]);
 
@@ -30,22 +28,20 @@ export async function GET(request: NextRequest) {
 
 // 알림 읽음 처리
 export async function PATCH(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: { message: "로그인이 필요합니다" } }, { status: 401 });
-  }
+  const { error, ctx } = await getTenantContext();
+  if (error) return error;
 
   const body = await request.json();
   const { ids, all } = body;
 
   if (all) {
     await prisma.notification.updateMany({
-      where: { userId: session.user.id, isRead: false },
+      where: { userId: ctx.userId, isRead: false },
       data: { isRead: true },
     });
   } else if (ids?.length) {
     await prisma.notification.updateMany({
-      where: { id: { in: ids }, userId: session.user.id },
+      where: { id: { in: ids }, userId: ctx.userId },
       data: { isRead: true },
     });
   }

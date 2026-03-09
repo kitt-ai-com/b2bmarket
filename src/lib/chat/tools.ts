@@ -373,82 +373,84 @@ export async function executeTool(
   name: string,
   args: ToolArgs,
   userId: string,
-  role: string
+  role: string,
+  tenantId?: string
 ): Promise<unknown> {
   const isSeller = role === "SELLER";
 
   switch (name) {
     case "search_orders":
-      return searchOrders(args, isSeller ? userId : undefined);
+      return searchOrders(args, isSeller ? userId : undefined, tenantId);
     case "search_products":
-      return searchProducts(args, isSeller ? userId : undefined);
+      return searchProducts(args, isSeller ? userId : undefined, tenantId);
     case "get_dashboard_stats":
-      return getDashboardStats(isSeller ? userId : undefined);
+      return getDashboardStats(isSeller ? userId : undefined, tenantId);
     case "search_sellers":
       if (isSeller) return { error: "셀러는 다른 셀러 정보를 조회할 수 없습니다." };
-      return searchSellers(args);
+      return searchSellers(args, tenantId);
     case "get_order_detail":
-      return getOrderDetail(args, isSeller ? userId : undefined);
+      return getOrderDetail(args, isSeller ? userId : undefined, tenantId);
     case "get_recent_claims":
-      return getRecentClaims(args, isSeller ? userId : undefined);
+      return getRecentClaims(args, isSeller ? userId : undefined, tenantId);
     case "get_sales_chart":
-      return getSalesChart(args, isSeller ? userId : undefined);
+      return getSalesChart(args, isSeller ? userId : undefined, tenantId);
     case "update_order_status":
       if (isSeller) return { error: "셀러는 주문 상태를 변경할 수 없습니다." };
-      return updateOrderStatus(args);
+      return updateOrderStatus(args, tenantId);
     case "search_inquiries":
-      return searchInquiries(args, isSeller ? userId : undefined);
+      return searchInquiries(args, isSeller ? userId : undefined, tenantId);
     // Admin write tools
     case "create_product":
       if (isSeller) return { error: "셀러는 상품을 등록할 수 없습니다." };
-      return createProduct(args);
+      return createProduct(args, tenantId);
     case "update_product":
       if (isSeller) return { error: "셀러는 상품을 수정할 수 없습니다." };
-      return updateProduct(args);
+      return updateProduct(args, tenantId);
     case "bulk_update_price":
       if (isSeller) return { error: "셀러는 가격을 변경할 수 없습니다." };
-      return bulkUpdatePrice(args);
+      return bulkUpdatePrice(args, tenantId);
     case "input_tracking_number":
       if (isSeller) return { error: "셀러는 송장을 입력할 수 없습니다." };
-      return inputTrackingNumber(args);
+      return inputTrackingNumber(args, tenantId);
     case "process_claim":
       if (isSeller) return { error: "셀러는 클레임을 처리할 수 없습니다." };
-      return processClaim(args);
+      return processClaim(args, tenantId);
     case "send_notice":
       if (isSeller) return { error: "셀러는 공지를 작성할 수 없습니다." };
-      return sendNotice(args, userId);
+      return sendNotice(args, userId, tenantId);
     case "answer_inquiry":
       if (isSeller) return { error: "셀러는 문의에 답변할 수 없습니다." };
-      return answerInquiry(args);
+      return answerInquiry(args, tenantId);
     case "manage_seller":
       if (isSeller) return { error: "셀러는 셀러를 관리할 수 없습니다." };
-      return manageSeller(args);
+      return manageSeller(args, tenantId);
     // Seller write tools
     case "create_order":
-      return createOrder(args, userId);
+      return createOrder(args, userId, tenantId);
     case "create_claim":
-      return createClaim(args, isSeller ? userId : undefined);
+      return createClaim(args, isSeller ? userId : undefined, tenantId);
     case "create_inquiry":
-      return createInquiry(args, userId);
+      return createInquiry(args, userId, tenantId);
     // Advanced tools (Phase 5)
     case "upload_tracking_excel":
       if (isSeller) return { error: "셀러는 송장 엑셀을 업로드할 수 없습니다." };
-      return uploadTrackingExcel(args);
+      return uploadTrackingExcel(args, tenantId);
     case "bulk_create_orders":
-      return bulkCreateOrders(args, userId, isSeller);
+      return bulkCreateOrders(args, userId, isSeller, tenantId);
     case "get_margin_stats":
       if (isSeller) return { error: "셀러는 마진 정보를 조회할 수 없습니다." };
-      return getMarginStats(args);
+      return getMarginStats(args, tenantId);
     case "detect_anomalies":
       if (isSeller) return { error: "셀러는 이상 탐지를 실행할 수 없습니다." };
-      return detectAnomalies(args);
+      return detectAnomalies(args, tenantId);
     default:
       return { error: `알 수 없는 도구: ${name}` };
   }
 }
 
-async function searchOrders(args: ToolArgs, sellerId?: string) {
+async function searchOrders(args: ToolArgs, sellerId?: string, tenantId?: string) {
   const where: Record<string, unknown> = {};
+  if (tenantId) where.tenantId = tenantId;
   if (sellerId) where.sellerId = sellerId;
   if (args.orderNumber) where.orderNumber = { contains: args.orderNumber as string, mode: "insensitive" };
   if (args.status) where.status = args.status;
@@ -486,8 +488,9 @@ async function searchOrders(args: ToolArgs, sellerId?: string) {
   }));
 }
 
-async function searchProducts(args: ToolArgs, sellerId?: string) {
+async function searchProducts(args: ToolArgs, sellerId?: string, tenantId?: string) {
   const where: Record<string, unknown> = {};
+  if (tenantId) where.tenantId = tenantId;
   if (args.keyword) {
     where.OR = [
       { name: { contains: args.keyword as string, mode: "insensitive" } },
@@ -509,15 +512,25 @@ async function searchProducts(args: ToolArgs, sellerId?: string) {
 
     let products;
     if (args.lowStock) {
-      products = await prisma.$queryRaw`
-        SELECT p.id, p.code, p.name, p."basePrice", p.stock, p."minStock", p.status,
-               pp.price as "gradePrice"
-        FROM "Product" p
-        LEFT JOIN "ProductPrice" pp ON pp."productId" = p.id AND pp."gradeId" = ${gradeId || ""}
-        WHERE p.stock <= p."minStock"
-        ORDER BY p.stock ASC
-        LIMIT ${limit}
-      ` as Array<Record<string, unknown>>;
+      products = tenantId
+        ? await prisma.$queryRaw`
+          SELECT p.id, p.code, p.name, p."basePrice", p.stock, p."minStock", p.status,
+                 pp.price as "gradePrice"
+          FROM "Product" p
+          LEFT JOIN "ProductPrice" pp ON pp."productId" = p.id AND pp."gradeId" = ${gradeId || ""}
+          WHERE p.stock <= p."minStock" AND p."tenantId" = ${tenantId}
+          ORDER BY p.stock ASC
+          LIMIT ${limit}
+        ` as Array<Record<string, unknown>>
+        : await prisma.$queryRaw`
+          SELECT p.id, p.code, p.name, p."basePrice", p.stock, p."minStock", p.status,
+                 pp.price as "gradePrice"
+          FROM "Product" p
+          LEFT JOIN "ProductPrice" pp ON pp."productId" = p.id AND pp."gradeId" = ${gradeId || ""}
+          WHERE p.stock <= p."minStock"
+          ORDER BY p.stock ASC
+          LIMIT ${limit}
+        ` as Array<Record<string, unknown>>;
     } else {
       products = await prisma.product.findMany({
         where,
@@ -548,13 +561,21 @@ async function searchProducts(args: ToolArgs, sellerId?: string) {
   // Admin: show basePrice
   let products;
   if (args.lowStock) {
-    products = await prisma.$queryRaw`
-      SELECT id, code, name, "basePrice", stock, "minStock", status
-      FROM "Product"
-      WHERE stock <= "minStock"
-      ORDER BY stock ASC
-      LIMIT ${limit}
-    ` as Array<{ id: string; code: string; name: string; basePrice: number; stock: number; minStock: number; status: string }>;
+    products = tenantId
+      ? await prisma.$queryRaw`
+        SELECT id, code, name, "basePrice", stock, "minStock", status
+        FROM "Product"
+        WHERE stock <= "minStock" AND "tenantId" = ${tenantId}
+        ORDER BY stock ASC
+        LIMIT ${limit}
+      ` as Array<{ id: string; code: string; name: string; basePrice: number; stock: number; minStock: number; status: string }>
+      : await prisma.$queryRaw`
+        SELECT id, code, name, "basePrice", stock, "minStock", status
+        FROM "Product"
+        WHERE stock <= "minStock"
+        ORDER BY stock ASC
+        LIMIT ${limit}
+      ` as Array<{ id: string; code: string; name: string; basePrice: number; stock: number; minStock: number; status: string }>;
   } else {
     products = await prisma.product.findMany({
       where,
@@ -574,12 +595,17 @@ async function searchProducts(args: ToolArgs, sellerId?: string) {
   }));
 }
 
-async function getDashboardStats(sellerId?: string) {
+async function getDashboardStats(sellerId?: string, tenantId?: string) {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const orderWhere = sellerId ? { sellerId } : {};
+  const orderWhere: Record<string, unknown> = {};
+  if (tenantId) orderWhere.tenantId = tenantId;
+  if (sellerId) orderWhere.sellerId = sellerId;
+
+  const productWhere: Record<string, unknown> = {};
+  if (tenantId) productWhere.tenantId = tenantId;
 
   const [todayOrders, monthSales, totalProducts, lowStockCount, pendingClaims] = await Promise.all([
     prisma.order.count({
@@ -594,15 +620,22 @@ async function getDashboardStats(sellerId?: string) {
       _sum: { totalAmount: true },
     }),
     sellerId
-      ? prisma.orderItem.groupBy({ by: ["productId"], where: { order: { sellerId } }, _count: true }).then((r) => r.length)
-      : prisma.product.count(),
-    prisma.$queryRaw`SELECT COUNT(*) as count FROM "Product" WHERE stock <= "minStock"`.then(
-      (r) => Number((r as Array<{ count: bigint }>)[0]?.count || 0)
-    ),
+      ? prisma.orderItem.groupBy({ by: ["productId"], where: { order: { sellerId, ...(tenantId ? { tenantId } : {}) } }, _count: true }).then((r) => r.length)
+      : prisma.product.count({ where: productWhere }),
+    tenantId
+      ? prisma.$queryRaw`SELECT COUNT(*) as count FROM "Product" WHERE stock <= "minStock" AND "tenantId" = ${tenantId}`.then(
+          (r) => Number((r as Array<{ count: bigint }>)[0]?.count || 0)
+        )
+      : prisma.$queryRaw`SELECT COUNT(*) as count FROM "Product" WHERE stock <= "minStock"`.then(
+          (r) => Number((r as Array<{ count: bigint }>)[0]?.count || 0)
+        ),
     prisma.claim.count({
       where: {
         status: "REQUESTED",
-        ...(sellerId ? { order: { sellerId } } : {}),
+        order: {
+          ...(sellerId ? { sellerId } : {}),
+          ...(tenantId ? { tenantId } : {}),
+        },
       },
     }),
   ]);
@@ -616,8 +649,9 @@ async function getDashboardStats(sellerId?: string) {
   };
 }
 
-async function searchSellers(args: ToolArgs) {
+async function searchSellers(args: ToolArgs, tenantId?: string) {
   const where: Record<string, unknown> = { role: "SELLER" };
+  if (tenantId) where.tenantId = tenantId;
   if (args.keyword) where.name = { contains: args.keyword as string, mode: "insensitive" };
   if (args.status) where.status = args.status;
 
@@ -645,8 +679,9 @@ async function searchSellers(args: ToolArgs) {
   }));
 }
 
-async function getOrderDetail(args: ToolArgs, sellerId?: string) {
+async function getOrderDetail(args: ToolArgs, sellerId?: string, tenantId?: string) {
   const where: Record<string, unknown> = { orderNumber: args.orderNumber as string };
+  if (tenantId) where.tenantId = tenantId;
   if (sellerId) where.sellerId = sellerId;
 
   const order = await prisma.order.findFirst({
@@ -688,9 +723,14 @@ async function getOrderDetail(args: ToolArgs, sellerId?: string) {
   };
 }
 
-async function getRecentClaims(args: ToolArgs, sellerId?: string) {
+async function getRecentClaims(args: ToolArgs, sellerId?: string, tenantId?: string) {
   const where: Record<string, unknown> = {};
-  if (sellerId) where.order = { sellerId };
+  if (tenantId || sellerId) {
+    where.order = {
+      ...(sellerId ? { sellerId } : {}),
+      ...(tenantId ? { tenantId } : {}),
+    };
+  }
   if (args.status) where.status = args.status;
   if (args.type) where.type = args.type;
 
@@ -715,7 +755,7 @@ async function getRecentClaims(args: ToolArgs, sellerId?: string) {
   }));
 }
 
-async function getSalesChart(args: ToolArgs, sellerId?: string) {
+async function getSalesChart(args: ToolArgs, sellerId?: string, tenantId?: string) {
   const period = (args.period as string) || "daily";
   const now = new Date();
   const data: { label: string; 매출: number }[] = [];
@@ -728,6 +768,7 @@ async function getSalesChart(args: ToolArgs, sellerId?: string) {
         createdAt: { gte: monthStart, lt: monthEnd },
         status: { notIn: ["CANCELLED", "RETURNED"] },
       };
+      if (tenantId) where.tenantId = tenantId;
       if (sellerId) where.sellerId = sellerId;
       const result = await prisma.order.aggregate({ where, _sum: { totalAmount: true } });
       data.push({
@@ -745,6 +786,7 @@ async function getSalesChart(args: ToolArgs, sellerId?: string) {
         createdAt: { gte: weekStart, lt: weekEnd },
         status: { notIn: ["CANCELLED", "RETURNED"] },
       };
+      if (tenantId) where.tenantId = tenantId;
       if (sellerId) where.sellerId = sellerId;
       const result = await prisma.order.aggregate({ where, _sum: { totalAmount: true } });
       data.push({
@@ -764,6 +806,7 @@ async function getSalesChart(args: ToolArgs, sellerId?: string) {
         createdAt: { gte: dayStart, lt: dayEnd },
         status: { notIn: ["CANCELLED", "RETURNED"] },
       };
+      if (tenantId) where.tenantId = tenantId;
       if (sellerId) where.sellerId = sellerId;
       const result = await prisma.order.aggregate({ where, _sum: { totalAmount: true } });
       data.push({
@@ -786,7 +829,7 @@ async function getSalesChart(args: ToolArgs, sellerId?: string) {
   };
 }
 
-async function updateOrderStatus(args: ToolArgs) {
+async function updateOrderStatus(args: ToolArgs, tenantId?: string) {
   const orderNumber = args.orderNumber as string;
   const newStatus = args.newStatus as string;
 
@@ -795,7 +838,9 @@ async function updateOrderStatus(args: ToolArgs) {
     return { error: `유효하지 않은 상태입니다. 가능한 상태: ${validStatuses.join(", ")}` };
   }
 
-  const order = await prisma.order.findFirst({ where: { orderNumber } });
+  const orderWhere: Record<string, unknown> = { orderNumber };
+  if (tenantId) orderWhere.tenantId = tenantId;
+  const order = await prisma.order.findFirst({ where: orderWhere });
   if (!order) return { error: "주문을 찾을 수 없습니다." };
 
   const transitions: Record<string, string[]> = {
@@ -827,8 +872,9 @@ async function updateOrderStatus(args: ToolArgs) {
   };
 }
 
-async function searchInquiries(args: ToolArgs, sellerId?: string) {
+async function searchInquiries(args: ToolArgs, sellerId?: string, tenantId?: string) {
   const where: Record<string, unknown> = {};
+  if (tenantId) where.tenantId = tenantId;
   if (sellerId) where.userId = sellerId;
   if (args.status) where.status = args.status;
   if (args.keyword) where.title = { contains: args.keyword as string, mode: "insensitive" };
@@ -866,7 +912,7 @@ async function searchInquiries(args: ToolArgs, sellerId?: string) {
 // Admin Write Tool Executors
 // ============================================
 
-async function createProduct(args: ToolArgs) {
+async function createProduct(args: ToolArgs, tenantId?: string) {
   const code = args.code as string;
   const name = args.name as string;
   const basePrice = Number(args.basePrice);
@@ -884,6 +930,7 @@ async function createProduct(args: ToolArgs) {
       minStock: Number(args.minStock) || 10,
       source: (args.source as "SELF" | "SUPPLIER") || "SELF",
       description: (args.description as string) || undefined,
+      tenantId,
     },
     select: { code: true, name: true, basePrice: true, stock: true, status: true },
   });
@@ -898,9 +945,9 @@ async function createProduct(args: ToolArgs) {
   };
 }
 
-async function updateProduct(args: ToolArgs) {
+async function updateProduct(args: ToolArgs, tenantId?: string) {
   const code = args.code as string;
-  const product = await prisma.product.findUnique({ where: { code } });
+  const product = await prisma.product.findFirst({ where: { code, ...(tenantId ? { tenantId } : {}) } });
   if (!product) return { error: `상품코드 ${code}를 찾을 수 없습니다.` };
 
   const data: Record<string, unknown> = {};
@@ -927,7 +974,7 @@ async function updateProduct(args: ToolArgs) {
   // Auto-notify sellers on price/status change
   if (data.basePrice || data.status) {
     const sellers = await prisma.user.findMany({
-      where: { role: "SELLER", status: "ACTIVE" },
+      where: { role: "SELLER", status: "ACTIVE", ...(tenantId ? { tenantId } : {}) },
       select: { id: true },
     });
     if (sellers.length > 0) {
@@ -961,11 +1008,12 @@ async function updateProduct(args: ToolArgs) {
   };
 }
 
-async function bulkUpdatePrice(args: ToolArgs) {
+async function bulkUpdatePrice(args: ToolArgs, tenantId?: string) {
   const adjustType = args.adjustType as string;
   const adjustValue = Number(args.adjustValue);
 
   const where: Record<string, unknown> = { status: "ACTIVE" };
+  if (tenantId) where.tenantId = tenantId;
   if (args.keyword) {
     where.OR = [
       { name: { contains: args.keyword as string, mode: "insensitive" } },
@@ -1014,12 +1062,14 @@ async function bulkUpdatePrice(args: ToolArgs) {
   };
 }
 
-async function inputTrackingNumber(args: ToolArgs) {
+async function inputTrackingNumber(args: ToolArgs, tenantId?: string) {
   const orderNumber = args.orderNumber as string;
   const trackingNumber = args.trackingNumber as string;
   const courier = (args.courier as string) || "CJ대한통운";
 
-  const order = await prisma.order.findFirst({ where: { orderNumber } });
+  const orderWhere: Record<string, unknown> = { orderNumber };
+  if (tenantId) orderWhere.tenantId = tenantId;
+  const order = await prisma.order.findFirst({ where: orderWhere });
   if (!order) return { error: "주문을 찾을 수 없습니다." };
 
   if (order.status === "CANCELLED" || order.status === "RETURNED") {
@@ -1058,12 +1108,12 @@ async function inputTrackingNumber(args: ToolArgs) {
   };
 }
 
-async function processClaim(args: ToolArgs) {
+async function processClaim(args: ToolArgs, tenantId?: string) {
   const orderNumber = args.orderNumber as string;
   const action = args.action as string;
 
   const claim = await prisma.claim.findFirst({
-    where: { order: { orderNumber } },
+    where: { order: { orderNumber, ...(tenantId ? { tenantId } : {}) } },
     orderBy: { createdAt: "desc" },
     include: { order: { select: { orderNumber: true, sellerId: true } } },
   });
@@ -1126,19 +1176,19 @@ async function processClaim(args: ToolArgs) {
   };
 }
 
-async function sendNotice(args: ToolArgs, adminUserId: string) {
+async function sendNotice(args: ToolArgs, adminUserId: string, tenantId?: string) {
   const title = args.title as string;
   const content = args.content as string;
   const isImportant = Boolean(args.isImportant);
 
   const notice = await prisma.notice.create({
-    data: { title, content, isImportant, authorId: adminUserId },
+    data: { title, content, isImportant, authorId: adminUserId, tenantId },
     select: { id: true, title: true, isImportant: true },
   });
 
-  // Notify all active sellers
+  // Notify all active sellers (within same tenant)
   const sellers = await prisma.user.findMany({
-    where: { role: "SELLER", status: "ACTIVE" },
+    where: { role: "SELLER", status: "ACTIVE", ...(tenantId ? { tenantId } : {}) },
     select: { id: true },
   });
 
@@ -1163,13 +1213,14 @@ async function sendNotice(args: ToolArgs, adminUserId: string) {
   };
 }
 
-async function answerInquiry(args: ToolArgs) {
+async function answerInquiry(args: ToolArgs, tenantId?: string) {
   const answer = args.answer as string;
+  const tenantWhere = tenantId ? { tenantId } : {};
 
   let inquiry;
   if (args.inquiryId) {
-    inquiry = await prisma.inquiry.findUnique({
-      where: { id: args.inquiryId as string },
+    inquiry = await prisma.inquiry.findFirst({
+      where: { id: args.inquiryId as string, ...tenantWhere },
       select: { id: true, title: true, status: true, userId: true },
     });
   } else if (args.inquiryTitle) {
@@ -1177,6 +1228,7 @@ async function answerInquiry(args: ToolArgs) {
       where: {
         title: { contains: args.inquiryTitle as string, mode: "insensitive" },
         status: "OPEN",
+        ...tenantWhere,
       },
       orderBy: { createdAt: "desc" },
       select: { id: true, title: true, status: true, userId: true },
@@ -1184,7 +1236,7 @@ async function answerInquiry(args: ToolArgs) {
   } else {
     // Find most recent unanswered inquiry
     inquiry = await prisma.inquiry.findFirst({
-      where: { status: "OPEN" },
+      where: { status: "OPEN", ...tenantWhere },
       orderBy: { createdAt: "desc" },
       select: { id: true, title: true, status: true, userId: true },
     });
@@ -1217,19 +1269,20 @@ async function answerInquiry(args: ToolArgs) {
   };
 }
 
-async function manageSeller(args: ToolArgs) {
+async function manageSeller(args: ToolArgs, tenantId?: string) {
   const action = args.action as string;
+  const tenantWhere = tenantId ? { tenantId } : {};
 
   // Find seller
   let seller;
   if (args.sellerEmail) {
     seller = await prisma.user.findFirst({
-      where: { email: args.sellerEmail as string, role: "SELLER" },
+      where: { email: args.sellerEmail as string, role: "SELLER", ...tenantWhere },
       select: { id: true, name: true, email: true, status: true, sellerProfile: { select: { id: true, grade: { select: { name: true } } } } },
     });
   } else if (args.sellerName) {
     seller = await prisma.user.findFirst({
-      where: { name: { contains: args.sellerName as string, mode: "insensitive" }, role: "SELLER" },
+      where: { name: { contains: args.sellerName as string, mode: "insensitive" }, role: "SELLER", ...tenantWhere },
       select: { id: true, name: true, email: true, status: true, sellerProfile: { select: { id: true, grade: { select: { name: true } } } } },
     });
   } else {
@@ -1271,7 +1324,7 @@ async function manageSeller(args: ToolArgs) {
 // Seller Write Tool Executors
 // ============================================
 
-async function createOrder(args: ToolArgs, sellerId: string) {
+async function createOrder(args: ToolArgs, sellerId: string, tenantId?: string) {
   const items = args.items as Array<{ productCode: string; quantity: number }>;
   if (!items?.length) return { error: "주문 상품을 지정해주세요." };
 
@@ -1332,6 +1385,7 @@ async function createOrder(args: ToolArgs, sellerId: string) {
       data: {
         orderNumber,
         sellerId,
+        tenantId,
         recipientName: args.recipientName as string,
         recipientPhone: args.recipientPhone as string,
         recipientAddr: args.recipientAddr as string,
@@ -1387,7 +1441,7 @@ async function createOrder(args: ToolArgs, sellerId: string) {
   };
 }
 
-async function createClaim(args: ToolArgs, sellerId?: string) {
+async function createClaim(args: ToolArgs, sellerId?: string, tenantId?: string) {
   const orderNumber = args.orderNumber as string;
   const type = args.type as string;
   const reason = args.reason as string;
@@ -1397,6 +1451,7 @@ async function createClaim(args: ToolArgs, sellerId?: string) {
   }
 
   const where: Record<string, unknown> = { orderNumber };
+  if (tenantId) where.tenantId = tenantId;
   if (sellerId) where.sellerId = sellerId;
 
   const order = await prisma.order.findFirst({ where });
@@ -1421,9 +1476,9 @@ async function createClaim(args: ToolArgs, sellerId?: string) {
     select: { type: true, status: true, reason: true },
   });
 
-  // Notify admins
+  // Notify admins (within same tenant)
   const admins = await prisma.user.findMany({
-    where: { role: { in: ["ADMIN", "SUPER_ADMIN"] } },
+    where: { role: { in: ["ADMIN", "SUPER_ADMIN"] }, ...(tenantId ? { tenantId } : {}) },
     select: { id: true },
   });
   if (admins.length > 0) {
@@ -1448,18 +1503,18 @@ async function createClaim(args: ToolArgs, sellerId?: string) {
   };
 }
 
-async function createInquiry(args: ToolArgs, userId: string) {
+async function createInquiry(args: ToolArgs, userId: string, tenantId?: string) {
   const title = args.title as string;
   const content = args.content as string;
 
   const inquiry = await prisma.inquiry.create({
-    data: { userId, title, content },
+    data: { userId, title, content, tenantId },
     select: { id: true, title: true, status: true },
   });
 
-  // Notify admins
+  // Notify admins (within same tenant)
   const admins = await prisma.user.findMany({
-    where: { role: { in: ["ADMIN", "SUPER_ADMIN"] } },
+    where: { role: { in: ["ADMIN", "SUPER_ADMIN"] }, ...(tenantId ? { tenantId } : {}) },
     select: { id: true },
   });
   if (admins.length > 0) {
@@ -1486,7 +1541,7 @@ async function createInquiry(args: ToolArgs, userId: string) {
 // Advanced Tool Executors (Phase 5)
 // ============================================
 
-async function uploadTrackingExcel(args: ToolArgs) {
+async function uploadTrackingExcel(args: ToolArgs, tenantId?: string) {
   const mappings = args.mappings as Array<{ orderNumber: string; trackingNumber: string; courier?: string }>;
   if (!mappings?.length) return { error: "매핑 데이터가 없습니다." };
 
@@ -1496,7 +1551,7 @@ async function uploadTrackingExcel(args: ToolArgs) {
 
   for (const m of mappings) {
     const order = await prisma.order.findFirst({
-      where: { orderNumber: m.orderNumber },
+      where: { orderNumber: m.orderNumber, ...(tenantId ? { tenantId } : {}) },
     });
 
     if (!order) {
@@ -1552,7 +1607,7 @@ async function uploadTrackingExcel(args: ToolArgs) {
   };
 }
 
-async function bulkCreateOrders(args: ToolArgs, userId: string, isSeller: boolean) {
+async function bulkCreateOrders(args: ToolArgs, userId: string, isSeller: boolean, tenantId?: string) {
   const orders = args.orders as Array<{
     recipientName: string;
     recipientPhone: string;
@@ -1627,6 +1682,7 @@ async function bulkCreateOrders(args: ToolArgs, userId: string, isSeller: boolea
           data: {
             orderNumber,
             sellerId: sellerId || userId,
+            tenantId,
             recipientName: o.recipientName,
             recipientPhone: o.recipientPhone,
             recipientAddr: o.recipientAddr,
@@ -1685,8 +1741,9 @@ async function bulkCreateOrders(args: ToolArgs, userId: string, isSeller: boolea
   };
 }
 
-async function getMarginStats(args: ToolArgs) {
+async function getMarginStats(args: ToolArgs, tenantId?: string) {
   const where: Record<string, unknown> = { costPrice: { not: null } };
+  if (tenantId) where.tenantId = tenantId;
   if (args.keyword) {
     where.OR = [
       { name: { contains: args.keyword as string, mode: "insensitive" } },
@@ -1764,7 +1821,7 @@ async function getMarginStats(args: ToolArgs) {
   };
 }
 
-async function detectAnomalies(args: ToolArgs) {
+async function detectAnomalies(args: ToolArgs, tenantId?: string) {
   const checkType = (args.checkType as string) || "all";
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1773,15 +1830,18 @@ async function detectAnomalies(args: ToolArgs) {
   const twoWeeksAgo = new Date(todayStart);
   twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
 
+  const orderTenantWhere = tenantId ? { tenantId } : {};
+  const productTenantWhere = tenantId ? { tenantId } : {};
+
   const anomalies: Array<{ 유형: string; 심각도: string; 내용: string }> = [];
 
   // 1. Order anomalies - sudden spike
   if (checkType === "all" || checkType === "orders") {
     const thisWeekOrders = await prisma.order.count({
-      where: { createdAt: { gte: weekAgo } },
+      where: { createdAt: { gte: weekAgo }, ...orderTenantWhere },
     });
     const lastWeekOrders = await prisma.order.count({
-      where: { createdAt: { gte: twoWeeksAgo, lt: weekAgo } },
+      where: { createdAt: { gte: twoWeeksAgo, lt: weekAgo }, ...orderTenantWhere },
     });
 
     if (lastWeekOrders > 0 && thisWeekOrders > lastWeekOrders * 2) {
@@ -1804,10 +1864,10 @@ async function detectAnomalies(args: ToolArgs) {
   // 2. Claim anomalies - high return rate
   if (checkType === "all" || checkType === "claims") {
     const recentOrders = await prisma.order.count({
-      where: { createdAt: { gte: weekAgo } },
+      where: { createdAt: { gte: weekAgo }, ...orderTenantWhere },
     });
     const recentClaims = await prisma.claim.count({
-      where: { createdAt: { gte: weekAgo } },
+      where: { createdAt: { gte: weekAgo }, ...(tenantId ? { order: { tenantId } } : {}) },
     });
 
     if (recentOrders > 10 && recentClaims / recentOrders > 0.1) {
@@ -1821,7 +1881,7 @@ async function detectAnomalies(args: ToolArgs) {
     // Seller with most claims
     const sellerClaims = await prisma.claim.groupBy({
       by: ["orderId"],
-      where: { createdAt: { gte: weekAgo } },
+      where: { createdAt: { gte: weekAgo }, ...(tenantId ? { order: { tenantId } } : {}) },
       _count: true,
     });
 
@@ -1853,7 +1913,7 @@ async function detectAnomalies(args: ToolArgs) {
   // 3. Stock anomalies
   if (checkType === "all" || checkType === "stock") {
     const outOfStock = await prisma.product.count({
-      where: { status: "ACTIVE", stock: 0 },
+      where: { status: "ACTIVE", stock: 0, ...productTenantWhere },
     });
 
     if (outOfStock > 0) {
@@ -1864,9 +1924,13 @@ async function detectAnomalies(args: ToolArgs) {
       });
     }
 
-    const lowStockCount = await prisma.$queryRaw`
-      SELECT COUNT(*) as count FROM "Product" WHERE status = 'ACTIVE' AND stock > 0 AND stock <= "minStock"
-    `.then((r) => Number((r as Array<{ count: bigint }>)[0]?.count || 0));
+    const lowStockCount = tenantId
+      ? await prisma.$queryRaw`
+        SELECT COUNT(*) as count FROM "Product" WHERE status = 'ACTIVE' AND stock > 0 AND stock <= "minStock" AND "tenantId" = ${tenantId}
+      `.then((r) => Number((r as Array<{ count: bigint }>)[0]?.count || 0))
+      : await prisma.$queryRaw`
+        SELECT COUNT(*) as count FROM "Product" WHERE status = 'ACTIVE' AND stock > 0 AND stock <= "minStock"
+      `.then((r) => Number((r as Array<{ count: bigint }>)[0]?.count || 0));
 
     if (lowStockCount > 0) {
       anomalies.push({
@@ -1880,7 +1944,7 @@ async function detectAnomalies(args: ToolArgs) {
   // 4. Pending items
   if (checkType === "all" || checkType === "pending") {
     const pendingOrders = await prisma.order.count({
-      where: { status: "PENDING", createdAt: { lte: new Date(Date.now() - 48 * 60 * 60 * 1000) } },
+      where: { status: "PENDING", createdAt: { lte: new Date(Date.now() - 48 * 60 * 60 * 1000) }, ...orderTenantWhere },
     });
 
     if (pendingOrders > 0) {
@@ -1892,7 +1956,7 @@ async function detectAnomalies(args: ToolArgs) {
     }
 
     const pendingClaims = await prisma.claim.count({
-      where: { status: "REQUESTED", createdAt: { lte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      where: { status: "REQUESTED", createdAt: { lte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, ...(tenantId ? { order: { tenantId } } : {}) },
     });
 
     if (pendingClaims > 0) {
@@ -1904,7 +1968,7 @@ async function detectAnomalies(args: ToolArgs) {
     }
 
     const pendingInquiries = await prisma.inquiry.count({
-      where: { status: "OPEN", createdAt: { lte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      where: { status: "OPEN", createdAt: { lte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, ...(tenantId ? { tenantId } : {}) },
     });
 
     if (pendingInquiries > 0) {
@@ -1916,7 +1980,7 @@ async function detectAnomalies(args: ToolArgs) {
     }
 
     const pendingSellers = await prisma.user.count({
-      where: { role: "SELLER", status: "PENDING" },
+      where: { role: "SELLER", status: "PENDING", ...(tenantId ? { tenantId } : {}) },
     });
 
     if (pendingSellers > 0) {

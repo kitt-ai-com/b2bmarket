@@ -1,25 +1,20 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getTenantContext } from "@/lib/tenant";
 
 // 대화 이력 조회
 export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json(
-      { error: { code: "UNAUTHORIZED", message: "로그인이 필요합니다" } },
-      { status: 401 }
-    );
-  }
+  const { error, ctx } = await getTenantContext();
+  if (error) return error;
 
   const searchParams = request.nextUrl.searchParams;
   const limit = Math.min(Number(searchParams.get("limit") || "50"), 100);
   const cursor = searchParams.get("cursor") || undefined;
 
   const messages = await prisma.chatMessage.findMany({
-    where: { userId: session.user.id },
+    where: { userId: ctx.userId },
     orderBy: { createdAt: "asc" },
     take: limit,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -40,16 +35,11 @@ export async function GET(request: NextRequest) {
 
 // 대화 기록 초기화
 export async function DELETE() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json(
-      { error: { code: "UNAUTHORIZED", message: "로그인이 필요합니다" } },
-      { status: 401 }
-    );
-  }
+  const { error, ctx } = await getTenantContext();
+  if (error) return error;
 
   await prisma.chatMessage.deleteMany({
-    where: { userId: session.user.id },
+    where: { userId: ctx.userId },
   });
 
   return NextResponse.json({ data: { success: true } });

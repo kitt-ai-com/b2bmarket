@@ -1,15 +1,13 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { executeTool } from "@/lib/chat/tools";
 import * as XLSX from "xlsx";
+import { getTenantContext } from "@/lib/tenant";
 
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: { message: "로그인이 필요합니다" } }, { status: 401 });
-  }
+  const { error, ctx } = await getTenantContext();
+  if (error) return error;
 
   const body = await request.json();
   const { tools } = body as { tools: { name: string; args: Record<string, unknown> }[] };
@@ -18,13 +16,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: { message: "내보낼 데이터가 없습니다" } }, { status: 400 });
   }
 
-  const role = (session.user as Record<string, unknown>).role as string;
-  const userId = session.user.id;
+  const role = ctx.role;
+  const userId = ctx.userId;
+  const tenantId = ctx.tenantId || undefined;
 
   // Execute all tools and collect results
   const allData: Record<string, unknown>[] = [];
   for (const tool of tools) {
-    const result = await executeTool(tool.name, tool.args, userId, role);
+    const result = await executeTool(tool.name, tool.args, userId, role, tenantId);
     if (Array.isArray(result)) {
       allData.push(...result);
     }
