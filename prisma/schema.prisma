@@ -42,6 +42,12 @@ model User {
   activityLogs    ActivityLog[]
   chatMessages    ChatMessage[]
   depositRequests DepositRequest[]
+
+  tenantId    String?
+  tenant      Tenant?      @relation("TenantMembers", fields: [tenantId], references: [id])
+  ownedTenant Tenant?      @relation("TenantOwner")
+  inviteLinks InviteLink[]
+  auditLogs   AuditLog[]
 }
 
 model SellerProfile {
@@ -69,6 +75,9 @@ model SellerGrade {
 
   sellers       SellerProfile[]
   prices        ProductPrice[]
+
+  tenantId      String?
+  tenant        Tenant?          @relation(fields: [tenantId], references: [id])
 }
 
 // ============================================
@@ -95,6 +104,9 @@ model Category {
   createdAt   DateTime   @default(now())
 
   products    Product[]
+
+  tenantId    String?
+  tenant      Tenant?    @relation(fields: [tenantId], references: [id])
 }
 
 model Product {
@@ -122,6 +134,9 @@ model Product {
   gradePrices   ProductPrice[]
   sellerPrices  SellerPrice[]
   orderItems    OrderItem[]
+
+  tenantId      String?
+  tenant        Tenant?        @relation(fields: [tenantId], references: [id])
 }
 
 model ProductPrice {
@@ -164,6 +179,9 @@ model Supplier {
   products        Product[]
   purchaseOrders  PurchaseOrder[]
   excelTemplate   ExcelTemplate?
+
+  tenantId        String?
+  tenant          Tenant?          @relation(fields: [tenantId], references: [id])
 }
 
 model ExcelTemplate {
@@ -220,6 +238,9 @@ model Order {
   items           OrderItem[]
   claims          Claim[]
   modificationRequests OrderModificationRequest[]
+
+  tenantId        String?
+  tenant          Tenant?      @relation(fields: [tenantId], references: [id])
 }
 
 model OrderItem {
@@ -260,6 +281,9 @@ model PurchaseOrder {
   updatedAt     DateTime            @updatedAt
 
   items         PurchaseOrderItem[]
+
+  tenantId      String?
+  tenant        Tenant?              @relation(fields: [tenantId], references: [id])
 }
 
 model PurchaseOrderItem {
@@ -306,6 +330,9 @@ model Claim {
   processedAt     DateTime?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
+
+  tenantId        String?
+  tenant          Tenant?     @relation(fields: [tenantId], references: [id])
 }
 
 // ============================================
@@ -333,6 +360,9 @@ model Settlement {
   notes         String?
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
+
+  tenantId      String?
+  tenant        Tenant?          @relation(fields: [tenantId], references: [id])
 }
 
 // ============================================
@@ -353,6 +383,9 @@ model Deposit {
   updatedAt    DateTime             @updatedAt
 
   transactions DepositTransaction[]
+
+  tenantId     String?
+  tenant       Tenant?              @relation(fields: [tenantId], references: [id])
 }
 
 model DepositTransaction {
@@ -365,6 +398,9 @@ model DepositTransaction {
   description   String?
   adminId       String?
   createdAt     DateTime               @default(now())
+
+  tenantId      String?
+  tenant        Tenant?                @relation(fields: [tenantId], references: [id])
 }
 
 enum DepositRequestStatus {
@@ -385,6 +421,9 @@ model DepositRequest {
   processedBy    String?
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
+
+  tenantId       String?
+  tenant         Tenant?              @relation(fields: [tenantId], references: [id])
 }
 
 // ============================================
@@ -408,6 +447,9 @@ model Inquiry {
   answeredAt  DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+
+  tenantId    String?
+  tenant      Tenant?       @relation(fields: [tenantId], references: [id])
 }
 
 // ============================================
@@ -422,6 +464,9 @@ model Notice {
   authorId    String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id])
 }
 
 // ============================================
@@ -451,6 +496,9 @@ model Notification {
   data        Json?
   isRead      Boolean          @default(false)
   createdAt   DateTime         @default(now())
+
+  tenantId    String?
+  tenant      Tenant?          @relation(fields: [tenantId], references: [id])
 }
 
 // ============================================
@@ -476,6 +524,9 @@ model OrderModificationRequest {
   processedAt DateTime?
   createdAt   DateTime                 @default(now())
   updatedAt   DateTime                 @updatedAt
+
+  tenantId    String?
+  tenant      Tenant?                  @relation(fields: [tenantId], references: [id])
 }
 
 // ============================================
@@ -491,6 +542,9 @@ model ActivityLog {
   details     Json?
   ipAddress   String?
   createdAt   DateTime @default(now())
+
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id])
 }
 
 // ============================================
@@ -511,4 +565,164 @@ model ChatMessage {
   content     String
   metadata    Json?
   createdAt   DateTime @default(now())
+
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id])
+}
+
+// ============================================
+// 멀티테넌시
+// ============================================
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum InviteType {
+  LINK
+  CODE
+}
+
+model Plan {
+  id               String         @id @default(cuid())
+  name             String         @unique
+  displayName      String
+  price            Int            @default(0)
+  maxSellers       Int            @default(5)
+  maxMonthlyOrders Int            @default(100)
+  maxProducts      Int            @default(50)
+  maxDailyAiChats  Int            @default(5)
+  hasExcel         Boolean        @default(false)
+  hasFullStats     Boolean        @default(false)
+  trialDays        Int            @default(0)
+  isActive         Boolean        @default(true)
+  sortOrder        Int            @default(0)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  tenants          Tenant[]
+  subscriptions    Subscription[]
+}
+
+model Tenant {
+  id            String       @id @default(cuid())
+  name          String
+  slug          String       @unique
+  status        TenantStatus @default(ACTIVE)
+  ownerId       String       @unique
+  owner         User         @relation("TenantOwner", fields: [ownerId], references: [id])
+  planId        String
+  plan          Plan         @relation(fields: [planId], references: [id])
+  trialEndsAt   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  subscriptions              Subscription[]
+  payments                   Payment[]
+  inviteLinks                InviteLink[]
+  usageTrackers              UsageTracker[]
+  auditLogs                  AuditLog[]
+
+  users                      User[]                      @relation("TenantMembers")
+  products                   Product[]
+  orders                     Order[]
+  categories                 Category[]
+  sellerGrades               SellerGrade[]
+  suppliers                  Supplier[]
+  purchaseOrders             PurchaseOrder[]
+  claims                     Claim[]
+  settlements                Settlement[]
+  deposits                   Deposit[]
+  depositTransactions        DepositTransaction[]
+  depositRequests            DepositRequest[]
+  inquiries                  Inquiry[]
+  notices                    Notice[]
+  notifications              Notification[]
+  orderModificationRequests  OrderModificationRequest[]
+  activityLogs               ActivityLog[]
+  chatMessages               ChatMessage[]
+}
+
+model Subscription {
+  id          String             @id @default(cuid())
+  tenantId    String
+  tenant      Tenant             @relation(fields: [tenantId], references: [id])
+  planId      String
+  plan        Plan               @relation(fields: [planId], references: [id])
+  status      SubscriptionStatus @default(ACTIVE)
+  startDate   DateTime
+  endDate     DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  payments    Payment[]
+}
+
+model Payment {
+  id               String        @id @default(cuid())
+  tenantId         String
+  tenant           Tenant        @relation(fields: [tenantId], references: [id])
+  subscriptionId   String?
+  subscription     Subscription? @relation(fields: [subscriptionId], references: [id])
+  amount           Int
+  status           PaymentStatus @default(PENDING)
+  tossPaymentKey   String?
+  tossOrderId      String?
+  paidAt           DateTime?
+  createdAt        DateTime      @default(now())
+}
+
+model InviteLink {
+  id          String     @id @default(cuid())
+  tenantId    String
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  code        String     @unique
+  type        InviteType @default(LINK)
+  expiresAt   DateTime?
+  maxUses     Int        @default(0)
+  currentUses Int        @default(0)
+  isActive    Boolean    @default(true)
+  createdById String
+  createdBy   User       @relation(fields: [createdById], references: [id])
+  createdAt   DateTime   @default(now())
+}
+
+model UsageTracker {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  month         String
+  monthlyOrders Int      @default(0)
+  date          String
+  dailyAiChats  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, month, date])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  actorId        String
+  actor          User     @relation(fields: [actorId], references: [id])
+  targetTenantId String?
+  targetTenant   Tenant?  @relation(fields: [targetTenantId], references: [id])
+  action         String
+  details        Json?
+  createdAt      DateTime @default(now())
 }
