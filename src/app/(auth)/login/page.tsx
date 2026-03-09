@@ -37,9 +37,12 @@ export default function LoginPage() {
     const sessionRes = await fetch("/api/auth/session");
     const session = await sessionRes.json();
     const role = session?.user?.role;
-    const redirectUrl = role === "ADMIN" || role === "SUPER_ADMIN"
-      ? "/admin/dashboard"
-      : "/seller/dashboard";
+    const redirectUrl =
+      role === "SUPER_ADMIN"
+        ? "/super-admin/dashboard"
+        : role === "ADMIN"
+          ? "/admin/dashboard"
+          : "/seller/dashboard";
 
     router.push(redirectUrl);
     router.refresh();
@@ -82,7 +85,7 @@ export default function LoginPage() {
         <div className="mt-4 text-center text-sm text-gray-500">
           아직 계정이 없으신가요?{" "}
           <Link href="/register" className="text-blue-600 hover:underline">
-            셀러 회원가입
+            회원가입
           </Link>
         </div>
       </CardContent>

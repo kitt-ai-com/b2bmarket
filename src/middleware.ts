@@ -25,9 +25,10 @@ export default auth((req) => {
   const role = (req.auth?.user as any)?.role as string | undefined;
   const isAuthPage =
     pathname.startsWith("/login") || pathname.startsWith("/register");
+  const isPublicPage = pathname.startsWith("/invite");
 
   // 로그인 안 한 상태에서 보호된 페이지 접근
-  if (!isLoggedIn && !isAuthPage && pathname !== "/") {
+  if (!isLoggedIn && !isAuthPage && !isPublicPage && pathname !== "/") {
     return Response.redirect(new URL("/login", req.url));
   }
 
